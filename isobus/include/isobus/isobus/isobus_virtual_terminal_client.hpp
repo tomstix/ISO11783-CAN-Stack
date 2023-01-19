@@ -856,15 +856,6 @@ namespace isobus
 			NumberFlags ///< The number of flags in this enum
 		};
 
-		/// @brief The different states of an object pool upload process
-		enum class CurrentObjectPoolUploadState : std::uint8_t
-		{
-			Uninitialized, ///< The object pool upload has not been started
-			InProgress,	   ///< The object pool upload is in progress
-			Success,	   ///< The object pool was uploaded
-			Failed		   ///< The pool upload has failed
-		};
-
 		/// @brief An object for storing information regarding an object pool upload
 		struct ObjectPoolDataStruct
 		{

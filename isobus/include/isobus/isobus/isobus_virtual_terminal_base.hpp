@@ -272,6 +272,15 @@ namespace isobus
         static constexpr std::uint16_t NULL_OBJECT_ID = 0xFFFF; ///< The NULL Object ID, usually drawn as blank space
 
     protected:
+        /// @brief The different states of an object pool upload process
+        enum class CurrentObjectPoolUploadState : std::uint8_t
+        {
+            Uninitialized, ///< The object pool upload has not been started
+            InProgress,    ///< The object pool upload is in progress
+            Success,       ///< The object pool was uploaded
+            Failed         ///< The pool upload has failed
+        };
+
         /// @brief Enumerates the multiplexor byte values for VT commands
         enum class Function : std::uint8_t
         {
