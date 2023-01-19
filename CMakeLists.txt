@@ -96,7 +96,8 @@ if(BUILD_TESTING)
     add_executable(
       unit_tests test/address_claim_test.cpp test/test_CAN_glue.cpp
                  test/identifier_tests.cpp test/dm_13_tests.cpp
-                 test/core_network_management_tests.cpp)
+                 test/core_network_management_tests.cpp
+                 test/object_pool_parser_test.cpp)
     target_link_libraries(
       unit_tests
       PRIVATE GTest::gtest_main ${PROJECT_NAME}::Isobus
