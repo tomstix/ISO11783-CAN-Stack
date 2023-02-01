@@ -17,12 +17,22 @@
 #include <memory>
 #include <map>
 #include <string>
+#include <functional>
 
 namespace isobus
 {
+    // Forward declaration of Object Pool and VirtualTerminalObject to use as pointer
+    class ObjectPool;
+    class VirtualTerminalObject;
+
+    /// @brief defintion of a callback when an object is changed
+    /// @param object The object that has been updated
+    using VTObjectChangedCallback = std::function<void(const std::shared_ptr<VirtualTerminalObject>)>;
+
     class VirtualTerminalObject : public VirtualTerminalBase
     {
     public:
+    
         /// @brief Get the ID of a VT Object
         /// @returns the object ID
         ObjectID get_object_id() const;
@@ -31,8 +41,13 @@ namespace isobus
         /// @returns the object type
         virtual ObjectType get_object_type() const;
 
+        void register_update_callback(VTObjectChangedCallback);
+
     protected:
         ObjectID objectID = 0;
+        std::shared_ptr<ObjectPool> parentObjectPool;
+        std::vector<VTObjectChangedCallback> objectChangedCallbacks;
+        void call_object_changed_callbacks();
     };
 
     /// @brief A class that represents a Working Set Object
@@ -49,8 +64,8 @@ namespace isobus
         /// @returns True if successful
         bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin);
 
-        /// @brief Typedef for a child object consisting if id, x position, y position
-        typedef std::tuple<ObjectID, std::uint16_t, std::uint16_t> ChildObject;
+        /// @brief Typedef for a child object consisting of id, x position, y position
+        using ChildObject = std::tuple<ObjectID, std::uint16_t, std::uint16_t>;
 
         /// @brief Get the child objects of the working set
         /// @returns A vector of ChildObjects
@@ -63,6 +78,16 @@ namespace isobus
         /// @brief Get the languages contained in the working set
         /// @returns A string vector of the languages
         std::vector<std::string> get_child_languages() const;
+
+        /// @brief Change the active mask of the working set
+        /// @param mask Object ID of the mask to activate
+        void change_active_mask(const ObjectID mask);
+
+        void change_background_color(std::uint8_t color);
+
+        void change_child_position(const ObjectID child, const std::uint16_t newX, const std::uint16_t newY);
+
+        void change_child_location(const ObjectID child, const std::uint16_t deltaX, const std::uint16_t deltaY);
 
     private:
         std::uint8_t backgroundColor = 0;
@@ -77,7 +102,14 @@ namespace isobus
     class DataMaskObject : public VirtualTerminalObject
     {
     public:
+        /// @brief Get the object type
+        /// @returns ObjectType
+        ObjectType get_object_type() const override;
+
         bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin);
+
+    private:
+        uint8_t backgroundColor;
     };
 
     /// @brief A class that contains an object pool
@@ -88,10 +120,11 @@ namespace isobus
         /// @param binaryPool The binary representation of the pool
         /// @returns true if parsing succeeded
         bool parse(std::vector<std::uint8_t> &binaryPool);
-        std::map<ObjectID, std::shared_ptr<VirtualTerminalObject>> &get_objects() const;
+
+        std::map<ObjectID, std::shared_ptr<VirtualTerminalObject>> objects;
 
     private:
-        std::map<ObjectID, std::shared_ptr<VirtualTerminalObject>> objects;
+        std::string versionHash;
     };
 } // namespace isobus
 
