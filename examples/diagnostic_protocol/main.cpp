@@ -1,3 +1,4 @@
+#include "isobus/hardware_integration/available_can_drivers.hpp"
 #include "isobus/hardware_integration/can_hardware_interface.hpp"
 #include "isobus/hardware_integration/socket_can_interface.hpp"
 #include "isobus/isobus/can_general_parameter_group_numbers.hpp"
@@ -9,23 +10,13 @@
 #include <iterator>
 #include <memory>
 
-#ifdef WIN32
-#include "isobus/hardware_integration/pcan_basic_windows_plugin.hpp"
-static PCANBasicWindowsPlugin canDriver(PCAN_USBBUS1);
-#else
-#include "isobus/hardware_integration/socket_can_interface.hpp"
-static SocketCANInterface canDriver("can0");
-#endif
-
-static std::shared_ptr<isobus::InternalControlFunction> TestInternalECU = nullptr;
-
 using namespace std;
 
-void signal_handler(int signum)
+void signal_handler(int)
 {
-	isobus::DiagnosticProtocol::deassign_diagnostic_protocol_to_internal_control_function(TestInternalECU);
+	isobus::DiagnosticProtocol::deassign_all_diagnostic_protocol_to_internal_control_functions();
 	CANHardwareInterface::stop();
-	exit(signum);
+	_exit(EXIT_FAILURE);
 }
 
 void update_CAN_network()
@@ -38,14 +29,32 @@ void raw_can_glue(isobus::HardwareInterfaceCANFrame &rawFrame, void *parentPoint
 	isobus::CANNetworkManager::CANNetwork.can_lib_process_rx_message(rawFrame, parentPointer);
 }
 
-void setup()
+int main()
 {
-	CANHardwareInterface::set_number_of_can_channels(1);
-	CANHardwareInterface::assign_can_channel_frame_handler(0, &canDriver);
+	std::signal(SIGINT, signal_handler);
 
-	if ((!CANHardwareInterface::start()) || (!canDriver.get_is_valid()))
+	std::shared_ptr<CANHardwarePlugin> canDriver = nullptr;
+#if defined(ISOBUS_SOCKETCAN_AVAILABLE)
+	canDriver = std::make_shared<SocketCANInterface>("can0");
+#elif defined(ISOBUS_WINDOWSPCANBASIC_AVAILABLE)
+	canDriver = std::make_shared<PCANBasicWindowsPlugin>(PCAN_USBBUS1);
+#elif defined(ISOBUS_WINDOWSINNOMAKERUSB2CAN_AVAILABLE)
+	canDriver = std::make_shared<InnoMakerUSB2CANWindowsPlugin>(0); // CAN0
+#endif
+	if (nullptr == canDriver)
 	{
-		std::cout << "Failed to connect to the socket. The interface might be down." << std::endl;
+		std::cout << "Unable to find a CAN driver. Please make sure you have one of the above drivers installed with the library." << std::endl;
+		std::cout << "If you want to use a different driver, please add it to the list above." << std::endl;
+		return -1;
+	}
+
+	CANHardwareInterface::set_number_of_can_channels(1);
+	CANHardwareInterface::assign_can_channel_frame_handler(0, canDriver);
+
+	if ((!CANHardwareInterface::start()) || (!canDriver->get_is_valid()))
+	{
+		std::cout << "Failed to start hardware interface. The CAN driver might be invalid." << std::endl;
+		return -2;
 	}
 
 	CANHardwareInterface::add_can_lib_update_callback(update_CAN_network, nullptr);
@@ -55,8 +64,8 @@ void setup()
 
 	isobus::NAME TestDeviceNAME(0);
 
-	// Make sure you change these for your device!!!!
-	// This is an example device that is using a manufacturer code that is currently unused at time of writing
+	//! Make sure you change these for your device!!!!
+	//! This is an example device that is using a manufacturer code that is currently unused at time of writing
 	TestDeviceNAME.set_arbitrary_address_capable(true);
 	TestDeviceNAME.set_industry_group(0);
 	TestDeviceNAME.set_device_class(0);
@@ -67,20 +76,15 @@ void setup()
 	TestDeviceNAME.set_device_class_instance(0);
 	TestDeviceNAME.set_manufacturer_code(64);
 
-	TestInternalECU = std::make_shared<isobus::InternalControlFunction>(TestDeviceNAME, 0x1C, 0);
+	std::shared_ptr<isobus::InternalControlFunction> TestInternalECU = std::make_shared<isobus::InternalControlFunction>(TestDeviceNAME, 0x1C, 0);
+
+	// Wait to make sure address claiming is done. The time is arbitrary.
+	//! @todo Check this instead of asuming it is done
+	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
 	isobus::DiagnosticProtocol::assign_diagnostic_protocol_to_internal_control_function(TestInternalECU);
 
-	std::signal(SIGINT, signal_handler);
-}
-
-int main()
-{
-	isobus::DiagnosticProtocol *diagnosticProtocol;
-
-	setup();
-
-	diagnosticProtocol = isobus::DiagnosticProtocol::get_diagnostic_protocol_by_internal_control_function(TestInternalECU);
+	isobus::DiagnosticProtocol *diagnosticProtocol = isobus::DiagnosticProtocol::get_diagnostic_protocol_by_internal_control_function(TestInternalECU);
 
 	// Make a few test DTCs
 	isobus::DiagnosticProtocol::DiagnosticTroubleCode testDTC1(1234, isobus::DiagnosticProtocol::FailureModeIdentifier::ConditionExists, isobus::DiagnosticProtocol::LampStatus::None);

@@ -24,7 +24,7 @@ set(ISOBUS_SRC
     "can_partnered_control_function.cpp"
     "can_NAME_filter.cpp"
     "can_transport_protocol.cpp"
-    "can_warning_logger.cpp"
+    "can_stack_logger.cpp"
     "can_network_configuration.cpp"
     "can_callbacks.cpp"
     "isobus_virtual_terminal_client.cpp"
@@ -51,7 +51,7 @@ set(ISOBUS_INCLUDE
     "can_managed_message.hpp"
     "can_NAME_filter.hpp"
     "can_transport_protocol.hpp"
-    "can_warning_logger.hpp"
+    "can_stack_logger.hpp"
     "can_network_configuration.hpp"
     "can_callbacks.hpp"
     "isobus_virtual_terminal_base.hpp"
@@ -76,7 +76,7 @@ target_include_directories(
   Isobus PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
-target_link_libraries(Isobus PRIVATE ${PROJECT_NAME}::SystemTiming)
+target_link_libraries(Isobus PRIVATE ${PROJECT_NAME}::Utility)
 
 install(
   TARGETS Isobus

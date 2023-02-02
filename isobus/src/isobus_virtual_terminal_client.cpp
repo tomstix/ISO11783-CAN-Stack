@@ -10,7 +10,7 @@
 #include "isobus/isobus/isobus_virtual_terminal_client.hpp"
 #include "isobus/isobus/can_general_parameter_group_numbers.hpp"
 #include "isobus/isobus/can_network_manager.hpp"
-#include "isobus/isobus/can_warning_logger.hpp"
+#include "isobus/isobus/can_stack_logger.hpp"
 #include "isobus/utility/system_timing.hpp"
 #include "isobus/utility/to_string.hpp"
 
@@ -58,6 +58,7 @@ namespace isobus
 			partnerControlFunction->add_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::VirtualTerminalToECU), process_rx_message, this);
 			partnerControlFunction->add_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::Acknowledge), process_rx_message, this);
 			CANNetworkManager::CANNetwork.add_global_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::VirtualTerminalToECU), process_rx_message, this);
+			CANNetworkManager::CANNetwork.add_global_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::ECUtoVirtualTerminal), process_rx_message, this);
 		}
 	}
 
@@ -84,9 +85,14 @@ namespace isobus
 		}
 	}
 
-	bool VirtualTerminalClient::get_is_initialized()
+	bool VirtualTerminalClient::get_is_initialized() const
 	{
 		return initialized;
+	}
+
+	bool VirtualTerminalClient::get_is_connected() const
+	{
+		return (StateMachineState::Connected == state);
 	}
 
 	void VirtualTerminalClient::terminate()
@@ -98,6 +104,7 @@ namespace isobus
 				partnerControlFunction->remove_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::VirtualTerminalToECU), process_rx_message, this);
 				partnerControlFunction->remove_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::Acknowledge), process_rx_message, this);
 				CANNetworkManager::CANNetwork.remove_global_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::VirtualTerminalToECU), process_rx_message, this);
+				CANNetworkManager::CANNetwork.remove_global_parameter_group_number_callback(static_cast<std::uint32_t>(CANLibParameterGroupNumber::ECUtoVirtualTerminal), process_rx_message, this);
 			}
 
 			shouldTerminate = true;
@@ -274,6 +281,31 @@ namespace isobus
 		{
 			audioSignalTerminationCallbacks.erase(callbackLocation);
 		}
+	}
+
+	void VirtualTerminalClient::register_auxiliary_input_event_callback(AuxiliaryInputCallback value)
+	{
+		auxiliaryInputCallbacks.push_back(value);
+	}
+
+	void VirtualTerminalClient::remove_auxiliary_input_event_callback(AuxiliaryInputCallback value)
+	{
+		auto callbackLocation = std::find(auxiliaryInputCallbacks.begin(), auxiliaryInputCallbacks.end(), value);
+
+		if (auxiliaryInputCallbacks.end() != callbackLocation)
+		{
+			auxiliaryInputCallbacks.erase(callbackLocation);
+		}
+	}
+
+	isobus::VirtualTerminalClient::AssignedAuxiliaryFunction::AssignedAuxiliaryFunction(const std::uint16_t functionObjectID, const std::uint16_t inputObjectID, const AuxiliaryTypeTwoFunctionType functionType) :
+	  functionObjectID(functionObjectID), inputObjectID(inputObjectID), functionType(functionType)
+	{
+	}
+
+	bool VirtualTerminalClient::AssignedAuxiliaryFunction::operator==(const AssignedAuxiliaryFunction &other) const
+	{
+		return (functionObjectID == other.functionObjectID) && (inputObjectID == other.inputObjectID) && (functionType == other.functionType);
 	}
 
 	bool VirtualTerminalClient::send_hide_show_object(std::uint16_t objectID, HideShowObjectCommand command)
@@ -1567,7 +1599,7 @@ namespace isobus
 					// so the state machine cannot progress.
 					if (SystemTiming::time_expired_ms(lastVTStatusTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
-						CANStackLogger::CAN_stack_log("[VT]: Ready to upload pool, but VT server has timed out. Disconnecting.");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Ready to upload pool, but VT server has timed out. Disconnecting.");
 						set_state(StateMachineState::Disconnected);
 					}
 
@@ -1602,7 +1634,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get Memory Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get Memory Response Timeout");
 					}
 				}
 				break;
@@ -1621,7 +1653,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get Number Softkeys Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get Number Softkeys Response Timeout");
 					}
 				}
 				break;
@@ -1640,7 +1672,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get Text Font Data Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get Text Font Data Response Timeout");
 					}
 				}
 				break;
@@ -1659,7 +1691,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get Hardware Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get Hardware Response Timeout");
 					}
 				}
 				break;
@@ -1669,7 +1701,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get Versions Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get Versions Timeout");
 					}
 					else if ((!objectPools.empty()) &&
 					         (!objectPools[0].versionLabel.empty()) &&
@@ -1685,7 +1717,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get Versions Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get Versions Response Timeout");
 					}
 				}
 				break;
@@ -1695,7 +1727,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Send Load Version Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Send Load Version Timeout");
 					}
 					else
 					{
@@ -1729,7 +1761,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Load Version Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Load Version Response Timeout");
 					}
 				}
 				break;
@@ -1739,7 +1771,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Send Store Version Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Send Store Version Timeout");
 					}
 					else
 					{
@@ -1773,7 +1805,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Store Version Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Store Version Response Timeout");
 					}
 				}
 				break;
@@ -1825,7 +1857,7 @@ namespace isobus
 							else if (CurrentObjectPoolUploadState::Failed == currentObjectPoolState)
 							{
 								currentObjectPoolState = CurrentObjectPoolUploadState::Uninitialized;
-								CANStackLogger::CAN_stack_log("[VT]: An object pool failed to upload. Resetting connection to VT.");
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: An object pool failed to upload. Resetting connection to VT.");
 								set_state(StateMachineState::Disconnected);
 							}
 							else
@@ -1836,7 +1868,7 @@ namespace isobus
 						}
 						else
 						{
-							CANStackLogger::CAN_stack_log("[VT]: An object pool was supplied with an invalid size or pointer. Ignoring it.");
+							CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: An object pool was supplied with an invalid size or pointer. Ignoring it.");
 							objectPools[i].uploaded = true;
 						}
 					}
@@ -1862,7 +1894,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Failed);
-						CANStackLogger::CAN_stack_log("[VT]: Get End of Object Pool Response Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Get End of Object Pool Response Timeout");
 					}
 				}
 				break;
@@ -1873,7 +1905,7 @@ namespace isobus
 					if (SystemTiming::time_expired_ms(lastVTStatusTimestamp_ms, VT_STATUS_TIMEOUT_MS))
 					{
 						set_state(StateMachineState::Disconnected);
-						CANStackLogger::CAN_stack_log("[VT]: Status Timeout");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Status Timeout");
 					}
 				}
 				break;
@@ -1886,7 +1918,7 @@ namespace isobus
 					// Retry connecting after a while
 					if (SystemTiming::time_expired_ms(stateMachineTimestamp_ms, VT_STATE_MACHINE_RETRY_TIMEOUT_MS))
 					{
-						CANStackLogger::CAN_stack_log("[VT]: Resetting Failed VT Connection");
+						CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: Resetting Failed VT Connection");
 						set_state(StateMachineState::Disconnected);
 					}
 				}
@@ -2286,6 +2318,50 @@ namespace isobus
 		                                                      CANIdentifier::PriorityLowest7);
 	}
 
+	bool VirtualTerminalClient::send_aux_n_preferred_assignment()
+	{
+		//! @todo load preferred assignment from saved configuration
+		//! @todo only send command if there is an Auxiliary Function Type 2 object in the object pool
+		std::vector<std::uint8_t> buffer = { static_cast<std::uint8_t>(Function::PreferredAssignmentCommand), 0 };
+		if (buffer.size() < CAN_DATA_LENGTH)
+		{
+			buffer.resize(CAN_DATA_LENGTH);
+		}
+		return CANNetworkManager::CANNetwork.send_can_message(static_cast<std::uint32_t>(CANLibParameterGroupNumber::ECUtoVirtualTerminal),
+		                                                      buffer.data(),
+		                                                      buffer.size(),
+		                                                      myControlFunction.get(),
+		                                                      partnerControlFunction.get(),
+		                                                      CANIdentifier::PriorityLowest7);
+	}
+
+	bool VirtualTerminalClient::send_aux_n_assignment_response(std::uint16_t functionObjectID, bool hasError, bool isAlreadyAssigned)
+	{
+		std::uint8_t errorCode = 0;
+		if (hasError)
+		{
+			errorCode |= 0x01;
+		}
+		if ((isAlreadyAssigned) && (false == get_vt_version_supported(VTVersion::Version6)))
+		{
+			errorCode |= 0x02;
+		}
+		const std::uint8_t buffer[CAN_DATA_LENGTH] = { static_cast<std::uint8_t>(Function::AuxiliaryAssignmentTypeTwoCommand),
+			                                             static_cast<std::uint8_t>(functionObjectID),
+			                                             static_cast<std::uint8_t>(functionObjectID >> 8),
+			                                             errorCode,
+			                                             0xFF,
+			                                             0xFF,
+			                                             0xFF,
+			                                             0xFF };
+		return CANNetworkManager::CANNetwork.send_can_message(static_cast<std::uint32_t>(CANLibParameterGroupNumber::ECUtoVirtualTerminal),
+		                                                      buffer,
+		                                                      CAN_DATA_LENGTH,
+		                                                      myControlFunction.get(),
+		                                                      partnerControlFunction.get(),
+		                                                      CANIdentifier::PriorityLowest7);
+	}
+
 	void VirtualTerminalClient::set_state(StateMachineState value)
 	{
 		stateMachineTimestamp_ms = SystemTiming::get_timestamp_ms();
@@ -2452,6 +2528,17 @@ namespace isobus
 		}
 	}
 
+	void VirtualTerminalClient::process_auxiliary_input_callback(AssignedAuxiliaryFunction function, std::uint32_t value1, std::uint32_t value2, VirtualTerminalClient *parentPointer)
+	{
+		for (std::size_t i = 0; i < parentPointer->auxiliaryInputCallbacks.size(); i++)
+		{
+			if (nullptr != parentPointer->auxiliaryInputCallbacks[i])
+			{
+				parentPointer->auxiliaryInputCallbacks[i](function, value1, value2, parentPointer);
+			}
+		}
+	}
+
 	void VirtualTerminalClient::process_flags(std::uint32_t flag, void *parent)
 	{
 		if ((flag <= static_cast<std::uint32_t>(TransmitFlags::NumberFlags)) &&
@@ -2498,21 +2585,16 @@ namespace isobus
 		    (CAN_DATA_LENGTH <= message->get_data_length()))
 		{
 			VirtualTerminalClient *parentVT = reinterpret_cast<VirtualTerminalClient *>(parentPointer);
-			std::vector<std::uint8_t> &data = message->get_data();
-
 			switch (message->get_identifier().get_parameter_group_number())
 			{
 				case static_cast<std::uint32_t>(CANLibParameterGroupNumber::Acknowledge):
 				{
-					if (AcknowledgementType::Negative == static_cast<AcknowledgementType>(data.at(0)))
+					if (AcknowledgementType::Negative == static_cast<AcknowledgementType>(message->get_uint8_at(0)))
 					{
-						std::uint32_t targetParameterGroupNumber = ((static_cast<std::uint32_t>(data.at(5)) << 16) |
-						                                            (static_cast<std::uint32_t>(data.at(6)) << 8) |
-						                                            (static_cast<std::uint32_t>(data.at(7))));
-
+						std::uint32_t targetParameterGroupNumber = message->get_uint24_at(5);
 						if (static_cast<std::uint32_t>(CANLibParameterGroupNumber::ECUtoVirtualTerminal) == targetParameterGroupNumber)
 						{
-							CANStackLogger::CAN_stack_log("[VT]: The VT Server is NACK-ing our VT messages. Disconnecting.");
+							CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: The VT Server is NACK-ing our VT messages. Disconnecting.");
 							parentVT->set_state(StateMachineState::Disconnected);
 						}
 					}
@@ -2521,67 +2603,61 @@ namespace isobus
 
 				case static_cast<std::uint32_t>(CANLibParameterGroupNumber::VirtualTerminalToECU):
 				{
-					switch (data.at(0))
+					switch (message->get_uint8_at(0))
 					{
 						case static_cast<std::uint8_t>(Function::SoftKeyActivationMessage):
 						{
-							std::uint8_t keyCode = data.at(1);
+							std::uint8_t keyCode = message->get_uint8_at(1);
 							if (keyCode <= static_cast<std::uint8_t>(KeyActivationCode::ButtonPressAborted))
 							{
+								std::uint16_t objectID = message->get_uint16_at(2);
+								std::uint16_t parentObjectID = message->get_uint16_at(4);
+								std::uint8_t keyNumber = message->get_uint8_at(6);
 								if (parentVT->get_vt_version_supported(VTVersion::Version6))
 								{
 									//! @todo process TAN
 								}
 
-								parentVT->process_softkey_event_callback(static_cast<KeyActivationCode>(keyCode),
-								                                         static_cast<std::uint16_t>(data.at(6)),
-								                                         (static_cast<std::uint16_t>(data.at(2)) | (static_cast<std::uint16_t>(data.at(3)) << 8)),
-								                                         (static_cast<std::uint16_t>(data.at(4)) | (static_cast<std::uint16_t>(data.at(5)) << 8)),
-								                                         parentVT);
+								parentVT->process_softkey_event_callback(static_cast<KeyActivationCode>(keyCode), keyNumber, objectID, parentObjectID, parentVT);
 							}
 						}
 						break;
 
 						case static_cast<std::uint8_t>(Function::ButtonActivationMessage):
 						{
-							std::uint8_t keyCode = data.at(1);
+							std::uint8_t keyCode = message->get_uint8_at(1);
 							if (keyCode <= static_cast<std::uint8_t>(KeyActivationCode::ButtonPressAborted))
 							{
+								std::uint16_t objectID = message->get_uint16_at(2);
+								std::uint16_t parentObjectID = message->get_uint16_at(4);
+								std::uint8_t keyNumber = message->get_uint8_at(6);
 								if (parentVT->get_vt_version_supported(VTVersion::Version6))
 								{
 									//! @todo process TAN
 								}
-
-								parentVT->process_button_event_callback(static_cast<KeyActivationCode>(keyCode),
-								                                        static_cast<std::uint16_t>(data.at(6)),
-								                                        (static_cast<std::uint16_t>(data.at(2)) | (static_cast<std::uint16_t>(data.at(3)) << 8)),
-								                                        (static_cast<std::uint16_t>(data.at(4)) | (static_cast<std::uint16_t>(data.at(5)) << 8)),
-								                                        parentVT);
+								parentVT->process_button_event_callback(static_cast<KeyActivationCode>(keyCode), keyNumber, objectID, parentObjectID, parentVT);
 							}
 						}
 						break;
 
 						case static_cast<std::uint8_t>(Function::PointingEventMessage):
 						{
-							std::uint16_t xPosition = (static_cast<std::uint16_t>(data.at(1)) |
-							                           ((static_cast<std::uint16_t>(data.at(2))) << 8));
-							std::uint16_t yPosition = (static_cast<std::uint16_t>(data.at(3)) |
-							                           ((static_cast<std::uint16_t>(data.at(4))) << 8));
+							std::uint16_t xPosition = message->get_uint16_at(1);
+							std::uint16_t yPosition = message->get_uint16_at(3);
 
 							std::uint8_t touchState = static_cast<std::uint8_t>(KeyActivationCode::ButtonPressedOrLatched);
 							std::uint16_t partenMaskObjectID = NULL_OBJECT_ID;
 							if (parentVT->get_vt_version_supported(VTVersion::Version6))
 							{
 								// VT version is at least 6
-								touchState = data.at(5) & 0x0F;
-								partenMaskObjectID = (static_cast<std::uint16_t>(data.at(6)) |
-								                      ((static_cast<std::uint16_t>(data.at(7))) << 8));
+								touchState = message->get_uint8_at(5) & 0x0F;
+								partenMaskObjectID = message->get_uint16_at(6);
 								//! @todo process TAN
 							}
 							else if (parentVT->get_vt_version_supported(VTVersion::Version4))
 							{
 								// VT version is either 4 or 5
-								touchState = data.at(5);
+								touchState = message->get_uint8_at(5);
 							}
 
 							if (touchState <= static_cast<std::uint8_t>(KeyActivationCode::ButtonPressAborted))
@@ -2597,14 +2673,13 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTSelectInputObjectMessage):
 						{
-							std::uint16_t objectID = (static_cast<std::uint16_t>(data[1]) |
-							                          ((static_cast<std::uint16_t>(data[2])) << 8));
-							bool objectSelected = (0x01 == data[3]);
+							std::uint16_t objectID = message->get_uint16_at(1);
+							bool objectSelected = (0x01 == message->get_uint8_at(3));
 							bool objectOpenForInput = true;
 
 							if (parentVT->get_vt_version_supported(VTVersion::Version4))
 							{
-								objectOpenForInput = (0x01 == (data[4] & 0x01));
+								objectOpenForInput = message->get_bool_at(4, 0);
 							}
 
 							if (parentVT->get_vt_version_supported(VTVersion::Version6))
@@ -2618,9 +2693,8 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTESCMessage):
 						{
-							std::uint16_t objectID = (static_cast<std::uint16_t>(data[1]) |
-							                          ((static_cast<std::uint16_t>(data[2])) << 8));
-							std::uint8_t errorCode = data.at(3) & 0x1F;
+							std::uint16_t objectID = message->get_uint16_at(1);
+							std::uint8_t errorCode = message->get_uint8_at(3) & 0x1F;
 							if ((errorCode == static_cast<std::uint8_t>(ESCMessageErrorCode::OtherError)) ||
 							    (errorCode <= static_cast<std::uint8_t>(ESCMessageErrorCode::NoInputFieldOpen)))
 							{
@@ -2636,12 +2710,8 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTChangeNumericValueMessage):
 						{
-							std::uint16_t objectID = (static_cast<std::uint16_t>(data[1]) |
-							                          ((static_cast<std::uint16_t>(data[2])) << 8));
-							std::uint32_t value = (static_cast<std::uint32_t>(data[4]) |
-							                       ((static_cast<std::uint32_t>(data[5])) << 8) |
-							                       ((static_cast<std::uint32_t>(data[6])) << 16) |
-							                       ((static_cast<std::uint32_t>(data[7])) << 24));
+							std::uint16_t objectID = message->get_uint16_at(1);
+							std::uint32_t value = message->get_uint32_at(4);
 
 							if (parentVT->get_vt_version_supported(VTVersion::Version6))
 							{
@@ -2653,18 +2723,15 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTChangeActiveMaskMessage):
 						{
-							std::uint16_t maskObjectID = (static_cast<std::uint16_t>(data[1]) |
-							                              ((static_cast<std::uint16_t>(data[2])) << 8));
+							std::uint16_t maskObjectID = message->get_uint16_at(1);
 
-							bool missingObjects = (0x04 == (data[3] & 0x04));
-							bool maskOrChildHasErrors = (0x08 == (data[3] & 0x08));
-							bool anyOtherError = (0x010 == (data[3] & 0x010));
-							bool poolDeleted = (0x020 == (data[3] & 0x020));
+							bool missingObjects = message->get_bool_at(3, 2);
+							bool maskOrChildHasErrors = message->get_bool_at(3, 3);
+							bool anyOtherError = message->get_bool_at(3, 4);
+							bool poolDeleted = message->get_bool_at(3, 5);
 
-							std::uint16_t errorObjectID = (static_cast<std::uint16_t>(data[4]) |
-							                               ((static_cast<std::uint16_t>(data[5])) << 8));
-							std::uint16_t parentObjectID = (static_cast<std::uint16_t>(data[6]) |
-							                                ((static_cast<std::uint16_t>(data[7])) << 8));
+							std::uint16_t errorObjectID = message->get_uint16_at(4);
+							std::uint16_t parentObjectID = message->get_uint16_at(6);
 
 							parentVT->process_change_active_mask_callback(maskObjectID,
 							                                              errorObjectID,
@@ -2679,14 +2746,13 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTChangeSoftKeyMaskMessage):
 						{
-							std::uint16_t dataOrAlarmMaskID = (static_cast<std::uint16_t>(data[1]) |
-							                                   ((static_cast<std::uint16_t>(data[2])) << 8));
-							std::uint16_t softKeyMaskID = (static_cast<std::uint16_t>(data[3]) |
-							                               ((static_cast<std::uint16_t>(data[4])) << 8));
-							bool missingObjects = (0x04 == (data[5] & 0x04));
-							bool maskOrChildHasErrors = (0x08 == (data[5] & 0x08));
-							bool anyOtherError = (0x010 == (data[5] & 0x010));
-							bool poolDeleted = (0x020 == (data[5] & 0x020));
+							std::uint16_t dataOrAlarmMaskID = message->get_uint16_at(1);
+							std::uint16_t softKeyMaskID = message->get_uint16_at(3);
+
+							bool missingObjects = message->get_bool_at(5, 2);
+							bool maskOrChildHasErrors = message->get_bool_at(5, 3);
+							bool anyOtherError = message->get_bool_at(5, 4);
+							bool poolDeleted = message->get_bool_at(5, 5);
 
 							parentVT->process_change_soft_key_mask_callback(dataOrAlarmMaskID,
 							                                                softKeyMaskID,
@@ -2700,10 +2766,9 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTChangeStringValueMessage):
 						{
-							std::uint16_t objectID = (static_cast<std::uint16_t>(data[1]) |
-							                          ((static_cast<std::uint16_t>(data[2])) << 8));
-							std::uint8_t stringLength = data[3];
-							std::string value = std::string(data.begin() + 4, data.begin() + 4 + stringLength);
+							std::uint16_t objectID = message->get_uint16_at(1);
+							std::uint8_t stringLength = message->get_uint8_at(3);
+							std::string value = std::string(message->get_data().begin() + 4, message->get_data().begin() + 4 + stringLength);
 
 							parentVT->process_change_string_value_callback(objectID, value, parentVT);
 						}
@@ -2711,18 +2776,16 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTOnUserLayoutHideShowMessage):
 						{
-							std::uint16_t objectID = (static_cast<std::uint16_t>(data[1]) |
-							                          ((static_cast<std::uint16_t>(data[2])) << 8));
-							bool hidden = (0 == (data[3] & 0x01));
+							std::uint16_t objectID = message->get_uint16_at(1);
+							bool hidden = !message->get_bool_at(3, 0);
 
 							parentVT->process_user_layout_hide_show_callback(objectID, hidden, parentVT);
 
 							// There could be two layout messages in one packet
-							objectID = static_cast<std::uint16_t>(data[4]) | ((static_cast<std::uint16_t>(data[5])) << 8);
+							objectID = message->get_uint16_at(4);
 							if (objectID != NULL_OBJECT_ID)
 							{
-								hidden = (0 == (data[6] & 0x01));
-
+								hidden = !message->get_bool_at(6, 0);
 								parentVT->process_user_layout_hide_show_callback(objectID, hidden, parentVT);
 							}
 
@@ -2735,7 +2798,7 @@ namespace isobus
 
 						case static_cast<std::uint8_t>(Function::VTControlAudioSignalTerminationMessage):
 						{
-							bool terminated = (0x01 == (data[1] & 0x01));
+							bool terminated = message->get_bool_at(1, 0);
 
 							parentVT->process_audio_signal_termination_callback(terminated, parentVT);
 
@@ -2746,16 +2809,212 @@ namespace isobus
 						}
 						break;
 
+						case static_cast<std::uint8_t>(Function::PreferredAssignmentCommand):
+						{
+							if (message->get_bool_at(1, 0))
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[AUX-N]: Preferred Assignment Error - Auxiliary Input Unit(s) (NAME or Model Identification Code) not valid");
+							}
+							if (message->get_bool_at(3, 1))
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[AUX-N]: Preferred Assignment Error - Function Object ID(S) not valid");
+							}
+							if (message->get_bool_at(3, 2))
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[AUX-N]: Preferred Assignment Error - Input Object ID(s) not valid");
+							}
+							if (message->get_bool_at(3, 3))
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[AUX-N]: Preferred Assignment Error - Duplicate Object ID of Auxiliary Function");
+							}
+							if (message->get_bool_at(3, 4))
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[AUX-N]: Preferred Assignment Error - Other");
+							}
+
+							if (0 != message->get_uint8_at(1))
+							{
+								std::uint16_t faultyObjectID = message->get_uint16_at(2);
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[AUX-N]: Auxiliary Function Object ID of faulty assignment: " + isobus::to_string(faultyObjectID));
+							}
+							else
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Debug, "[AUX-N]: Preferred Assignment OK");
+								//! @todo load the preferred assignment into parentVT->auxiliaryInputDevices
+							}
+						}
+						break;
+
+						case static_cast<std::uint8_t>(Function::AuxiliaryAssignmentTypeTwoCommand):
+						{
+							if (14 == message->get_data_length())
+							{
+								std::uint64_t isoName = message->get_uint64_at(1);
+								bool storeAsPreferred = message->get_bool_at(9, 7);
+								std::uint8_t functionType = (message->get_uint8_at(9) & 0x1F);
+								std::uint16_t inputObjectID = message->get_uint16_at(10);
+								std::uint16_t functionObjectID = message->get_uint16_at(12);
+
+								bool hasError = false;
+								bool isAlreadyAssigned = false;
+								if (DEFAULT_NAME == isoName)
+								{
+									for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+									{
+										aux.functions.clear();
+										if (storeAsPreferred)
+										{
+											//! @todo save preferred assignment to persistent configuration
+										}
+									}
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[AUX-N] Unassigned all functions");
+								}
+								else if (0x1F == functionType)
+								{
+									for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+									{
+										if (aux.name == isoName)
+										{
+											aux.functions.clear();
+											if (storeAsPreferred)
+											{
+												//! @todo save preferred assignment to persistent configuration
+											}
+											CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[AUX-N] Unassigned function " + isobus::to_string(static_cast<int>(functionObjectID)) + " from input " + isobus::to_string(static_cast<int>(inputObjectID)));
+											break;
+										}
+									}
+								}
+								else if (NULL_OBJECT_ID == inputObjectID)
+								{
+									for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+									{
+										if (aux.name == isoName)
+										{
+											for (auto iter = aux.functions.begin(); iter != aux.functions.end(); iter++)
+											{
+												if (iter->functionObjectID == functionObjectID)
+												{
+													aux.functions.erase(iter);
+													if (storeAsPreferred)
+													{
+														//! @todo save preferred assignment to persistent configuration
+													}
+													CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[AUX-N] Unassigned function " + isobus::to_string(static_cast<int>(functionObjectID)) + " from input " + isobus::to_string(static_cast<int>(inputObjectID)));
+												}
+											}
+										}
+									}
+								}
+								else if (NULL_OBJECT_ID == functionObjectID)
+								{
+									for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+									{
+										if (aux.name == isoName)
+										{
+											for (auto iter = aux.functions.begin(); iter != aux.functions.end(); iter++)
+											{
+												if (iter->inputObjectID == inputObjectID)
+												{
+													aux.functions.erase(iter);
+													if (storeAsPreferred)
+													{
+														//! @todo save preferred assignment to persistent configuration
+													}
+													CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[AUX-N] Unassigned function " + isobus::to_string(static_cast<int>(functionObjectID)) + " from input " + isobus::to_string(static_cast<int>(inputObjectID)));
+												}
+											}
+										}
+									}
+								}
+								else
+								{
+									bool found = false;
+									for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+									{
+										if (aux.name == isoName)
+										{
+											found = true;
+											if (static_cast<std::uint8_t>(AuxiliaryTypeTwoFunctionType::QuadratureBooleanMomentary) >= functionType)
+											{
+												AssignedAuxiliaryFunction assignment(functionObjectID, inputObjectID, static_cast<AuxiliaryTypeTwoFunctionType>(functionType));
+												auto location = std::find(aux.functions.begin(), aux.functions.end(), assignment);
+												if (aux.functions.end() == location)
+												{
+													aux.functions.push_back(assignment);
+													if (storeAsPreferred)
+													{
+														//! @todo save preferred assignment to persistent configuration
+													}
+													CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[AUX-N]: Assigned function " + isobus::to_string(static_cast<int>(functionObjectID)) + " to input " + isobus::to_string(static_cast<int>(inputObjectID)));
+												}
+												else
+												{
+													hasError = true;
+													isAlreadyAssigned = true;
+													CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[AUX-N]: Unable to store preferred assignment due to missing auxiliary input device with name: " + isobus::to_string(isoName));
+												}
+											}
+											else
+											{
+												hasError = true;
+												CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[AUX-N]: Unable to store preferred assignment due to unsupported function type: " + isobus::to_string(functionType));
+											}
+											break;
+										}
+									}
+									if (false == found)
+									{
+										hasError = true;
+										//! @todo prettier logging of NAME
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[AUX-N]: Unable to store preferred assignment due to missing auxiliary input device with name: " + isobus::to_string(isoName));
+									}
+								}
+								parentVT->send_aux_n_assignment_response(functionObjectID, hasError, isAlreadyAssigned);
+							}
+							else
+							{
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[AUX-N]: Received AuxiliaryAssignmentTypeTwoCommand with wrong data length: " + isobus::to_string(message->get_data_length()) + " but expected 14.");
+							}
+						}
+						break;
+
+						case static_cast<std::uint8_t>(Function::AuxiliaryInputTypeTwoStatusMessage):
+						{
+							std::uint16_t inputObjectID = message->get_uint16_at(1);
+							std::uint16_t value1 = message->get_uint16_at(3);
+							std::uint16_t value2 = message->get_uint16_at(5);
+							/// @todo figure out how to best pass other status properties below to application
+							bool learnModeActive = message->get_bool_at(7, 0);
+							bool inputActive = message->get_bool_at(7, 1); // Only in learn mode?
+							bool controlIsLocked = false;
+							bool interactionWhileLocked = false;
+							if (parentVT->get_vt_version_supported(VTVersion::Version6))
+							{
+								controlIsLocked = message->get_bool_at(7, 2);
+								interactionWhileLocked = message->get_bool_at(7, 3);
+							}
+							for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+							{
+								for (AssignedAuxiliaryFunction &assignment : aux.functions)
+								{
+									if (assignment.inputObjectID == inputObjectID)
+									{
+										parentVT->process_auxiliary_input_callback(assignment, value1, value2, parentVT);
+									}
+								}
+							}
+						}
+						break;
+
 						case static_cast<std::uint8_t>(Function::VTStatusMessage):
 						{
 							parentVT->lastVTStatusTimestamp_ms = SystemTiming::get_timestamp_ms();
-							parentVT->activeWorkingSetMasterAddress = data[1];
-							parentVT->activeWorkingSetDataMaskObjectID = (static_cast<std::uint16_t>(data[2]) |
-							                                              ((static_cast<std::uint16_t>(data[3])) << 8));
-							parentVT->activeWorkingSetSoftkeyMaskObjectID = (static_cast<std::uint16_t>(data[4]) |
-							                                                 ((static_cast<std::uint16_t>(data[5])) << 8));
-							parentVT->busyCodesBitfield = data[6];
-							parentVT->currentCommandFunctionCode = data[7];
+							parentVT->activeWorkingSetMasterAddress = message->get_uint8_at(1);
+							parentVT->activeWorkingSetDataMaskObjectID = message->get_uint16_at(2);
+							parentVT->activeWorkingSetSoftkeyMaskObjectID = message->get_uint16_at(4);
+							parentVT->busyCodesBitfield = message->get_uint8_at(6);
+							parentVT->currentCommandFunctionCode = message->get_uint8_at(7);
 						}
 						break;
 
@@ -2763,9 +3022,9 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForGetMemoryResponse == parentVT->state)
 							{
-								parentVT->connectedVTVersion = data[1];
+								parentVT->connectedVTVersion = message->get_uint8_at(1);
 
-								if (0 == data[2])
+								if (0 == message->get_uint8_at(2))
 								{
 									// There IS enough memory
 									parentVT->set_state(StateMachineState::SendGetNumberSoftkeys);
@@ -2773,7 +3032,7 @@ namespace isobus
 								else
 								{
 									parentVT->set_state(StateMachineState::Failed);
-									CANStackLogger::CAN_stack_log("[VT]: Connection Failed Not Enough Memory");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Connection Failed Not Enough Memory");
 								}
 							}
 						}
@@ -2783,10 +3042,10 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForGetNumberSoftKeysResponse == parentVT->state)
 							{
-								parentVT->softKeyXAxisPixels = data[4];
-								parentVT->softKeyYAxisPixels = data[5];
-								parentVT->numberVirtualSoftkeysPerSoftkeyMask = data[6];
-								parentVT->numberPhysicalSoftkeys = data[7];
+								parentVT->softKeyXAxisPixels = message->get_uint8_at(4);
+								parentVT->softKeyYAxisPixels = message->get_uint8_at(5);
+								parentVT->numberVirtualSoftkeysPerSoftkeyMask = message->get_uint8_at(6);
+								parentVT->numberPhysicalSoftkeys = message->get_uint8_at(7);
 								parentVT->set_state(StateMachineState::SendGetTextFontData);
 							}
 						}
@@ -2796,9 +3055,9 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForGetTextFontDataResponse == parentVT->state)
 							{
-								parentVT->smallFontSizesBitfield = data[5];
-								parentVT->largeFontSizesBitfield = data[6];
-								parentVT->fontStylesBitfield = data[7];
+								parentVT->smallFontSizesBitfield = message->get_uint8_at(5);
+								parentVT->largeFontSizesBitfield = message->get_uint8_at(6);
+								parentVT->fontStylesBitfield = message->get_uint8_at(7);
 								parentVT->set_state(StateMachineState::SendGetHardware);
 							}
 						}
@@ -2808,15 +3067,13 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForGetHardwareResponse == parentVT->state)
 							{
-								if (data[2] <= static_cast<std::uint8_t>(GraphicMode::TwoHundredFiftySixColor))
+								if (message->get_uint8_at(2) <= static_cast<std::uint8_t>(GraphicMode::TwoHundredFiftySixColor))
 								{
-									parentVT->supportedGraphicsMode = static_cast<GraphicMode>(data[2]);
+									parentVT->supportedGraphicsMode = static_cast<GraphicMode>(message->get_uint8_at(2));
 								}
-								parentVT->hardwareFeaturesBitfield = data[3];
-								parentVT->xPixels = (static_cast<std::uint16_t>(data[4]) |
-								                     ((static_cast<std::uint16_t>(data[5])) << 8));
-								parentVT->yPixels = (static_cast<std::uint16_t>(data[6]) |
-								                     ((static_cast<std::uint16_t>(data[7])) << 8));
+								parentVT->hardwareFeaturesBitfield = message->get_uint8_at(3);
+								parentVT->xPixels = message->get_uint16_at(4);
+								parentVT->yPixels = message->get_uint16_at(6);
 								parentVT->lastObjectPoolIndex = 0;
 
 								// Check if we need to ask for pool versions
@@ -2839,7 +3096,7 @@ namespace isobus
 							if (StateMachineState::WaitForGetVersionsResponse == parentVT->state)
 							{
 								// See if the server returned any labels
-								const std::uint8_t numberOfLabels = data[1];
+								const std::uint8_t numberOfLabels = message->get_uint8_at(1);
 								constexpr std::size_t LABEL_LENGTH = 7;
 
 								if (numberOfLabels > 0)
@@ -2848,18 +3105,18 @@ namespace isobus
 									bool labelMatched = false;
 									const std::size_t remainingLength = (2 + (LABEL_LENGTH * numberOfLabels));
 
-									if (data.size() >= remainingLength)
+									if (message->get_data_length() >= remainingLength)
 									{
 										for (std::uint_fast8_t i = 0; i < numberOfLabels; i++)
 										{
 											char tempStringLabel[8] = { 0 };
-											tempStringLabel[0] = data[2 + (LABEL_LENGTH * i)];
-											tempStringLabel[1] = data[3 + (LABEL_LENGTH * i)];
-											tempStringLabel[2] = data[4 + (LABEL_LENGTH * i)];
-											tempStringLabel[3] = data[5 + (LABEL_LENGTH * i)];
-											tempStringLabel[4] = data[6 + (LABEL_LENGTH * i)];
-											tempStringLabel[5] = data[7 + (LABEL_LENGTH * i)];
-											tempStringLabel[6] = data[8 + (LABEL_LENGTH * i)];
+											tempStringLabel[0] = message->get_uint8_at(2 + (LABEL_LENGTH * i));
+											tempStringLabel[1] = message->get_uint8_at(3 + (LABEL_LENGTH * i));
+											tempStringLabel[2] = message->get_uint8_at(4 + (LABEL_LENGTH * i));
+											tempStringLabel[3] = message->get_uint8_at(5 + (LABEL_LENGTH * i));
+											tempStringLabel[4] = message->get_uint8_at(6 + (LABEL_LENGTH * i));
+											tempStringLabel[5] = message->get_uint8_at(7 + (LABEL_LENGTH * i));
+											tempStringLabel[6] = message->get_uint8_at(8 + (LABEL_LENGTH * i));
 											tempStringLabel[7] = '\0';
 											std::string labelDecoded(tempStringLabel);
 											std::string tempActualLabel(parentVT->objectPools[0].versionLabel);
@@ -2879,12 +3136,12 @@ namespace isobus
 											{
 												labelMatched = true;
 												parentVT->set_state(StateMachineState::SendLoadVersion);
-												CANStackLogger::CAN_stack_log("[VT]: VT Server has a matching label for " + isobus::to_string(labelDecoded) + ". It will be loaded and upload will be skipped.");
+												CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: VT Server has a matching label for " + isobus::to_string(labelDecoded) + ". It will be loaded and upload will be skipped.");
 												break;
 											}
 											else
 											{
-												CANStackLogger::CAN_stack_log("[VT]: VT Server has a label for " + isobus::to_string(labelDecoded) + ". This version will be deleted.");
+												CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: VT Server has a label for " + isobus::to_string(labelDecoded) + ". This version will be deleted.");
 												const std::array<std::uint8_t, 7> deleteBuffer = {
 													static_cast<std::uint8_t>(labelDecoded[0]),
 													static_cast<std::uint8_t>(labelDecoded[1]),
@@ -2896,30 +3153,30 @@ namespace isobus
 												};
 												if (!parentVT->send_delete_version(deleteBuffer))
 												{
-													CANStackLogger::CAN_stack_log("[VT]: Failed to send the delete version message for label " + isobus::to_string(labelDecoded));
+													CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Failed to send the delete version message for label " + isobus::to_string(labelDecoded));
 												}
 											}
 										}
 										if (!labelMatched)
 										{
-											CANStackLogger::CAN_stack_log("[VT]: No version label from the VT matched. Client will upload the pool and store it instead.");
+											CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: No version label from the VT matched. Client will upload the pool and store it instead.");
 											parentVT->set_state(StateMachineState::UploadObjectPool);
 										}
 									}
 									else
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Get Versions Response length is not long enough. Message ignored.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Get Versions Response length is not long enough. Message ignored.");
 									}
 								}
 								else
 								{
-									CANStackLogger::CAN_stack_log("[VT]: No version label from the VT matched. Client will upload the pool and store it instead.");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: No version label from the VT matched. Client will upload the pool and store it instead.");
 									parentVT->set_state(StateMachineState::UploadObjectPool);
 								}
 							}
 							else
 							{
-								CANStackLogger::CAN_stack_log("[VT]: Get Versions Response ignored!");
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Get Versions Response ignored!");
 							}
 						}
 						break;
@@ -2928,35 +3185,43 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForLoadVersionResponse == parentVT->state)
 							{
-								if (0 == data[5])
+								if (0 == message->get_uint8_at(5))
 								{
-									CANStackLogger::CAN_stack_log("[VT]: Loaded object pool version from VT non-volatile memory with no errors.");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: Loaded object pool version from VT non-volatile memory with no errors.");
 									parentVT->set_state(StateMachineState::Connected);
+									if (parentVT->send_aux_n_preferred_assignment())
+									{
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Debug, "[AUX-N]: Sent preferred assignments.");
+									}
+									else
+									{
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[AUX-N]: Failed to send preferred assignments.");
+									}
 								}
 								else
 								{
 									// At least one error is set
-									if (data[5] & 0x01)
+									if (message->get_bool_at(5, 0))
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Load Versions Response error: File system error or corruption.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Load Versions Response error: File system error or corruption.");
 									}
-									if (data[5] & 0x02)
+									if (message->get_bool_at(5, 1))
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Load Versions Response error: Insufficient memory.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Load Versions Response error: Insufficient memory.");
 									}
-									if (data[5] & 0x04)
+									if (message->get_bool_at(5, 2))
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Load Versions Response error: Any other error.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Load Versions Response error: Any other error.");
 									}
 
 									// Not sure what happened here... should be mostly impossible. Try to upload instead.
-									CANStackLogger::CAN_stack_log("[VT]: Switching to pool upload instead.");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Switching to pool upload instead.");
 									parentVT->set_state(StateMachineState::UploadObjectPool);
 								}
 							}
 							else
 							{
-								CANStackLogger::CAN_stack_log("[VT]: Load Versions Response ignored!");
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Load Versions Response ignored!");
 							}
 						}
 						break;
@@ -2965,51 +3230,51 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForStoreVersionResponse == parentVT->state)
 							{
-								if (0 == data[5])
+								if (0 == message->get_uint8_at(5))
 								{
 									// Stored with no error
 									parentVT->set_state(StateMachineState::Connected);
-									CANStackLogger::CAN_stack_log("[VT]: Stored object pool with no error.");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: Stored object pool with no error.");
 								}
 								else
 								{
 									// At least one error is set
-									if (data[5] & 0x01)
+									if (message->get_bool_at(5, 0))
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Store Versions Response error: Version label is not correct.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Store Versions Response error: Version label is not correct.");
 									}
-									if (data[5] & 0x02)
+									if (message->get_bool_at(5, 1))
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Store Versions Response error: Insufficient memory.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Store Versions Response error: Insufficient memory.");
 									}
-									if (data[5] & 0x04)
+									if (message->get_bool_at(5, 2))
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Store Versions Response error: Any other error.");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Store Versions Response error: Any other error.");
 									}
 								}
 							}
 							else
 							{
-								CANStackLogger::CAN_stack_log("[VT]: Store Versions Response ignored!");
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Store Versions Response ignored!");
 							}
 						}
 						break;
 
 						case static_cast<std::uint8_t>(Function::DeleteVersionCommand):
 						{
-							if (0 == data[5])
+							if (0 == message->get_uint8_at(5))
 							{
-								CANStackLogger::CAN_stack_log("[VT]: Delete Version Response OK!");
+								CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[VT]: Delete Version Response OK!");
 							}
 							else
 							{
-								if (data[5] & 0x02)
+								if (message->get_bool_at(5, 1))
 								{
-									CANStackLogger::CAN_stack_log("[VT]: Delete Version Response error: Version label is not correct, or unknown.");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Delete Version Response error: Version label is not correct, or unknown.");
 								}
-								if (data[5] & 0x08)
+								if (message->get_bool_at(5, 3))
 								{
-									CANStackLogger::CAN_stack_log("[VT]: Delete Version Response error: Any other error.");
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Delete Version Response error: Any other error.");
 								}
 							}
 						}
@@ -3019,14 +3284,12 @@ namespace isobus
 						{
 							if (StateMachineState::WaitForEndOfObjectPoolResponse == parentVT->state)
 							{
-								bool anyErrorInPool = (0 != (data[1] & 0x01));
-								bool vtRanOutOfMemory = (0 != (data[1] & 0x02));
-								bool otherErrors = (0 != (data[1] & 0x08));
-								std::uint16_t parentObjectIDOfFaultyObject = (static_cast<std::uint16_t>(data[2]) |
-								                                              ((static_cast<std::uint16_t>(data[3])) << 8));
-								std::uint16_t objectIDOfFaultyObject = (static_cast<std::uint16_t>(data[4]) |
-								                                        ((static_cast<std::uint16_t>(data[5])) << 8));
-								std::uint8_t objectPoolErrorBitmask = data[6];
+								bool anyErrorInPool = message->get_bool_at(1, 0);
+								bool vtRanOutOfMemory = message->get_bool_at(1, 1);
+								bool otherErrors = message->get_bool_at(1, 3);
+								std::uint16_t parentObjectIDOfFaultyObject = message->get_uint16_at(2);
+								std::uint16_t objectIDOfFaultyObject = message->get_uint16_at(4);
+								std::uint8_t objectPoolErrorBitmask = message->get_uint8_at(6);
 
 								if ((!anyErrorInPool) &&
 								    (0 == objectPoolErrorBitmask))
@@ -3040,25 +3303,61 @@ namespace isobus
 									{
 										parentVT->set_state(StateMachineState::Connected);
 									}
+
+									if (parentVT->send_aux_n_preferred_assignment())
+									{
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Debug, "[AUX-N]: Sent preferred assignments.");
+									}
+									else
+									{
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[AUX-N]: Failed to send preferred assignments.");
+									}
 								}
 								else
 								{
 									parentVT->set_state(StateMachineState::Failed);
-									CANStackLogger::CAN_stack_log("[VT]: Error in end of object pool message." +
-									                              std::string("Faulty Object ") +
-									                              isobus::to_string(static_cast<int>(objectIDOfFaultyObject)) +
-									                              std::string(" Faulty Object Parent ") +
-									                              isobus::to_string(static_cast<int>(parentObjectIDOfFaultyObject)) +
-									                              std::string(" Pool error bitmask value ") +
-									                              isobus::to_string(static_cast<int>(objectPoolErrorBitmask)));
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Error in end of object pool message." + std::string("Faulty Object ") + isobus::to_string(static_cast<int>(objectIDOfFaultyObject)) + std::string(" Faulty Object Parent ") + isobus::to_string(static_cast<int>(parentObjectIDOfFaultyObject)) + std::string(" Pool error bitmask value ") + isobus::to_string(static_cast<int>(objectPoolErrorBitmask)));
 									if (vtRanOutOfMemory)
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Ran out of memory");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Ran out of memory");
 									}
 									if (otherErrors)
 									{
-										CANStackLogger::CAN_stack_log("[VT]: Reported other errors in EOM response");
+										CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[VT]: Reported other errors in EOM response");
 									}
+								}
+							}
+						}
+						break;
+					}
+				}
+				break;
+
+				case static_cast<std::uint32_t>(CANLibParameterGroupNumber::ECUtoVirtualTerminal):
+				{
+					switch (message->get_uint8_at(0))
+					{
+						case static_cast<std::uint8_t>(Function::AuxiliaryInputTypeTwoMaintenanceMessage):
+						{
+							std::uint16_t modelIdentificationCode = message->get_uint16_at(1);
+							bool ready = message->get_uint8_at(3);
+
+							if (ready)
+							{
+								bool found = false;
+								for (AuxiliaryInputDevice &aux : parentVT->auxiliaryInputDevices)
+								{
+									if (aux.modelIdentificationCode == modelIdentificationCode)
+									{
+										found = true;
+									}
+								}
+								if (false == found)
+								{
+									AuxiliaryInputDevice inputDevice{ message->get_source_control_function()->get_NAME().get_full_name(), modelIdentificationCode, {} };
+									parentVT->auxiliaryInputDevices.push_back(inputDevice);
+									//! @todo prettier logging of NAME
+									CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Info, "[AUX-N]: New auxiliary input device with name: " + isobus::to_string(inputDevice.name) + " and model identification code: " + std::to_string(modelIdentificationCode));
 								}
 							}
 						}
@@ -3069,14 +3368,14 @@ namespace isobus
 
 				default:
 				{
-					CANStackLogger::CAN_stack_log("[VT]: Client unknown message");
+					CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: Client unknown message: " + isobus::to_string(static_cast<int>(message->get_identifier().get_parameter_group_number())));
 				}
 				break;
 			}
 		}
 		else
 		{
-			CANStackLogger::CAN_stack_log("[VT]: VT-ECU Client message invalid");
+			CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Warning, "[VT]: VT-ECU Client message invalid");
 		}
 	}
 

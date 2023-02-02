@@ -18,9 +18,16 @@ if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
 endif()
 
-# Default to C++11
+# Default to C++14
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)
+endif()
+
+# Make CTest available which adds the option BUILD_TESTING
+include(CTest)
+if(BUILD_TESTING AND NOT MSVC)
+  # Set --coverage flag for gcovr (SonarCloud)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -29,21 +36,22 @@ endif()
 
 # Find packages required for Socket CAN
 set(THREADS_PREFER_PTHREAD_FLAG ON)
-if(NOT ESP_PLATFORM) # ESP-IDF doesn't implement find_package(Threads) correctly (dec 2022)
+# ESP-IDF doesn't implement find_package(Threads) correctly (dec 2022)
+if(NOT ESP_PLATFORM)
   find_package(Threads REQUIRED)
 endif()
 
-# A handy function to PREPEND text to all elements in a list (useful for
+# A handy function to prepend text to all elements in a list (useful for
 # subdirectories)
-function(PREPEND var prefix)
+function(prepend var prefix)
   set(listVar "")
-  foreach(f ${ARGN})
-    list(APPEND listVar "${prefix}/${f}")
-  endforeach(f)
+  foreach(arg ${ARGN})
+    list(APPEND listVar "${prefix}/${arg}")
+  endforeach(arg)
   set(${var}
       "${listVar}"
       PARENT_SCOPE)
-endfunction(PREPEND)
+endfunction(prepend)
 
 # Add subdirectories
 add_subdirectory("utility")
@@ -58,10 +66,9 @@ if(BUILD_EXAMPLES)
   add_subdirectory("examples/diagnostic_protocol")
   add_subdirectory("examples/pgn_requests")
   add_subdirectory("examples/nmea2000")
+  add_subdirectory("examples/vt_aux_n")
 endif()
 
-# Make CTest available which adds the option BUILD_TESTING
-include(CTest)
 if(BUILD_TESTING)
   find_package(GTest QUIET)
   if(NOT GTest_FOUND)
@@ -71,6 +78,7 @@ if(BUILD_TESTING)
       googletest
       GIT_REPOSITORY https://github.com/google/googletest.git
       GIT_TAG release-1.12.1)
+
     # For Windows: Prevent overriding the parent project's compiler/linker
     # settings
     set(gtest_force_shared_crt
@@ -92,25 +100,25 @@ if(BUILD_TESTING)
     add_library(GTest::gtest_main ALIAS GTest::Main)
   endif()
 
-  if("SocketCAN" IN_LIST CAN_DRIVER)
-    add_executable(
-      unit_tests test/address_claim_test.cpp test/test_CAN_glue.cpp
-                 test/identifier_tests.cpp test/dm_13_tests.cpp
-                 test/core_network_management_tests.cpp
-                 test/object_pool_parser_test.cpp)
-    target_link_libraries(
-      unit_tests
-      PRIVATE GTest::gtest_main ${PROJECT_NAME}::Isobus
-              ${PROJECT_NAME}::HardwareIntegration
-              ${PROJECT_NAME}::SystemTiming)
+  # Set test source files
+  set(TEST_SRC
+      test/identifier_tests.cpp test/dm_13_tests.cpp
+      test/core_network_management_tests.cpp test/virtual_can_plugin_tests.cpp
+      test/address_claim_tests.cpp test/can_name_tests.cpp
+      test/object_pool_parser_test.cpp)
 
-    include(GoogleTest)
-    gtest_discover_tests(unit_tests name_tests identifier_tests)
-  endif()
+  add_executable(unit_tests ${TEST_SRC})
+  target_link_libraries(
+    unit_tests
+    PRIVATE GTest::gtest_main ${PROJECT_NAME}::Isobus
+            ${PROJECT_NAME}::HardwareIntegration ${PROJECT_NAME}::Utility)
+
+  include(GoogleTest)
+  gtest_discover_tests(unit_tests name_tests identifier_tests)
 endif()
 
 install(
-  TARGETS Isobus SystemTiming HardwareIntegration
+  TARGETS Isobus Utility HardwareIntegration
   EXPORT isobusTargets
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
