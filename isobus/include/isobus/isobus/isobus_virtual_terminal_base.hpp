@@ -16,11 +16,11 @@
 
 namespace isobus
 {
-    class VirtualTerminalBase
+    /// @brief A struct that contains common enums etc. for the virtual terminal
+    struct VirtualTerminalBase
     {
-    public:
         /// @brief Typedef for 16bit object IDs
-        typedef std::uint16_t ObjectID;
+        using ObjectID = std::uint16_t;
 
         /// @brief The types of objects in an object pool by object type byte value
         enum class ObjectType : std::uint8_t

@@ -14,14 +14,21 @@
 /// @brief Converts bytes from a vector at a given iterator to a value of type T
 /// @tparam T Type to convert to
 /// @param it Iterator of the start of the bytes to convert
+/// @param end Iterator of the end of the vector to avoid out of bounds access
 /// @returns The converted value
 template <typename T>
-T read_bytes_at(std::vector<std::uint8_t>::iterator &it)
+T convert_bytes_to(std::vector<std::uint8_t>::iterator &it, const std::vector<std::uint8_t>::const_iterator &end)
 {
     T value = *it++;
-    for (auto i = 1; i < sizeof(T); ++i)
+    for (std::uint8_t i = 1; i < static_cast<std::uint8_t>(sizeof(T)); ++i)
     {
-        T tmp = *it++ << (i * 8);
+        if (it == end)
+        {
+            isobus::CANStackLogger::CAN_stack_log(isobus::CANStackLogger::LoggingLevel::Error,
+                                                  "[Object Pool Parser] Reached unexpected end of vector while parsing bytes!");
+            return value;
+        }
+        T tmp = (*it++) << (i * 8);
         value |= tmp;
     }
     return value;
@@ -29,26 +36,21 @@ T read_bytes_at(std::vector<std::uint8_t>::iterator &it)
 
 namespace isobus
 {
-    VirtualTerminalObject::ObjectType VirtualTerminalObject::get_object_type() const
-    {
-        return ObjectType::Reserved;
-    }
-
     VirtualTerminalObject::ObjectID VirtualTerminalObject::get_object_id() const
     {
         return this->objectID;
     }
 
-    void VirtualTerminalObject::register_update_callback(const VTObjectChangedCallback& callback)
+    void VirtualTerminalObject::register_update_callback(const VTObjectChangedCallback &callback)
     {
         this->objectChangedCallbacks.push_back(callback);
     }
 
-    void VirtualTerminalObject::call_object_changed_callbacks()
+    void VirtualTerminalObject::call_object_changed_callbacks() const
     {
         for (const auto &callback : this->objectChangedCallbacks)
         {
-            callback(std::make_shared<VirtualTerminalObject>(*this));
+            callback(this->objectID);
         }
     }
 
@@ -59,27 +61,28 @@ namespace isobus
 
     bool WorkingSetObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
     {
-        this->objectID = read_bytes_at<ObjectID>(it);
+        this->objectID = convert_bytes_to<ObjectID>(it, bytes.end());
         it++; // skip object type
         this->backgroundColor = *it++;
         this->selectable = static_cast<bool>(*it++);
-        this->activeMask = read_bytes_at<ObjectID>(it);
+        this->activeMask = convert_bytes_to<ObjectID>(it, bytes.end());
         std::uint8_t numObjects = *it++;
         std::uint8_t numMacros = *it++;
         std::uint8_t numLanguages = *it++;
 
         if (bytes.end() - it < numObjects * 6 + numMacros * 2 + numLanguages * 2)
         {
-            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[Object Pool Parser] Failed to parse working set object: invalid pool size!");
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to parse working set object: invalid pool size!");
             return false;
         }
 
         for (int i = 0; i < numObjects; ++i)
         {
-            ObjectID id = read_bytes_at<ObjectID>(it);
-            auto x_location = read_bytes_at<std::int16_t>(it);
-            auto y_location = read_bytes_at<std::int16_t>(it);
-            childObjects.push_back(std::make_tuple(id, x_location, y_location));
+            ObjectID id = convert_bytes_to<ObjectID>(it, bytes.end());
+            auto x_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            auto y_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            childObjects.emplace(id, std::make_pair(x_location, y_location));
         }
 
         for (int i = 0; i < numMacros; ++i)
@@ -96,7 +99,7 @@ namespace isobus
         return true;
     }
 
-    std::vector<WorkingSetObject::ChildObject> WorkingSetObject::get_child_objects() const { return this->childObjects; };
+    VTChildObjects const &WorkingSetObject::get_child_objects() const { return this->childObjects; };
 
     std::vector<std::uint16_t> WorkingSetObject::get_child_macros() const { return this->childMacros; };
 
@@ -116,12 +119,69 @@ namespace isobus
 
     void WorkingSetObject::change_child_position(const ObjectID child, const std::uint16_t newX, const std::uint16_t newY)
     {
-        // TODO: implement this function
+        auto it = this->childObjects.find(child);
+        if (it != this->childObjects.end())
+        {
+            it->second = std::make_pair(newX, newY);
+            call_object_changed_callbacks();
+            return;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to change child position: child not found!");
     }
 
     void WorkingSetObject::change_child_location(const ObjectID child, const std::uint16_t deltaX, const std::uint16_t deltaY)
     {
-        // TODO: implement this function
+        auto it = this->childObjects.find(child);
+        if (it != this->childObjects.end())
+        {
+            it->second.first += deltaX;
+            it->second.second += deltaY;
+            call_object_changed_callbacks();
+            return;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to change child location: child not found!");
+    }
+
+    DataMaskObject::ObjectType DataMaskObject::get_object_type() const
+    {
+        return ObjectType::DataMask;
+    }
+
+    bool DataMaskObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
+    {
+        this->objectID = convert_bytes_to<ObjectID>(it, bytes.end());
+        it++; // skip object type
+        this->backgroundColor = *it++;
+        this->softKeyMask = convert_bytes_to<ObjectID>(it, bytes.end());
+        std::uint8_t numObjects = *it++;
+        std::uint8_t numMacros = *it++;
+
+        if (bytes.end() - it < numObjects * 6 + numMacros * 2)
+        {
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to parse data mask object: invalid pool size!");
+            return false;
+        }
+
+        for (int i = 0; i < numObjects; ++i)
+        {
+            ObjectID id = convert_bytes_to<ObjectID>(it, bytes.end());
+            auto x_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            auto y_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            childObjects.emplace(id, std::make_pair(x_location, y_location));
+        }
+
+        for (int i = 0; i < numMacros; ++i)
+        {
+            childMacros.push_back(static_cast<std::int16_t>(*it++ | *it++ << 8));
+        }
+
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Debug,
+                                      "[Object Pool Parser] Successfully parsed data mask object!");
+
+        return true;
     }
 
     bool ObjectPool::parse(std::vector<std::uint8_t> &binaryPool)
@@ -134,20 +194,41 @@ namespace isobus
             {
             case ObjectType::WorkingSet:
             {
-                auto workingsetObject = std::make_shared<WorkingSetObject>();
+                auto workingsetObject = std::make_shared<WorkingSetObject>(this);
                 if (!workingsetObject->parse(binaryPool, iterator))
                     return false;
                 objects[workingsetObject->get_object_id()] = static_cast<std::shared_ptr<VirtualTerminalObject>>(workingsetObject);
                 break;
             }
+            case ObjectType::DataMask:
+            {
+                auto datamaskObject = std::make_shared<DataMaskObject>(this);
+                if (!datamaskObject->parse(binaryPool, iterator))
+                    return false;
+                objects[datamaskObject->get_object_id()] = static_cast<std::shared_ptr<VirtualTerminalObject>>(datamaskObject);
+                break;
+            }
             default:
             {
-                CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error, "[Object Pool Parser] Invalid or unsupported object pool element detected: " + isobus::to_string(static_cast<uint8_t>(objecttype)));
+                CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                              "[Object Pool Parser] Invalid or unsupported object pool element detected: " + isobus::to_string(static_cast<uint8_t>(objecttype)));
                 return false;
             }
             }
         }
         this->versionHash = IOPFileInterface::hash_object_pool_to_version(binaryPool);
         return true;
+    }
+
+    std::shared_ptr<VirtualTerminalObject> ObjectPool::get_object(ObjectID objectID) const
+    {
+        auto it = objects.find(objectID);
+        if (it == objects.end())
+        {
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to get object: object not found!");
+            return nullptr;
+        }
+        return it->second;
     }
 } // namespace isobus
