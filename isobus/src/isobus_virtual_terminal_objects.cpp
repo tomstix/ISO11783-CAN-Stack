@@ -36,17 +36,17 @@ T convert_bytes_to(std::vector<std::uint8_t>::iterator &it, const std::vector<st
 
 namespace isobus
 {
-    VirtualTerminalObject::ObjectID VirtualTerminalObject::get_object_id() const
+    VTObject::ObjectID VTObject::get_object_id() const
     {
         return this->objectID;
     }
 
-    void VirtualTerminalObject::register_update_callback(const VTObjectChangedCallback &callback)
+    void VTObject::register_update_callback(const VTObjectChangedCallback &callback)
     {
         this->objectChangedCallbacks.push_back(callback);
     }
 
-    void VirtualTerminalObject::call_object_changed_callbacks() const
+    void VTObject::call_object_changed_callbacks() const
     {
         for (const auto &callback : this->objectChangedCallbacks)
         {
@@ -54,9 +54,82 @@ namespace isobus
         }
     }
 
+    VTChildObjects const &VTObjectWithChildObjects::get_child_objects() const { return this->childObjects; };
+
+    void VTObjectWithChildObjects::change_child_position(const ObjectID child, const std::uint16_t newX, const std::uint16_t newY)
+    {
+        auto it = this->childObjects.find(child);
+        if (it != this->childObjects.end())
+        {
+            it->second = std::make_pair(newX, newY);
+            call_object_changed_callbacks();
+            return;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to change child position: child not found!");
+    }
+
+    void VTObjectWithChildObjects::change_child_location(const ObjectID child, const std::uint16_t deltaX, const std::uint16_t deltaY)
+    {
+        auto it = this->childObjects.find(child);
+        if (it != this->childObjects.end())
+        {
+            it->second.first += deltaX;
+            it->second.second += deltaY;
+            call_object_changed_callbacks();
+            return;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to change child location: child not found!");
+    }
+
+    std::vector<std::uint16_t> VTObjectChildMacrosExtension::get_child_macros() const { return this->childMacros; };
+
     WorkingSetObject::ObjectType WorkingSetObject::get_object_type() const
     {
         return ObjectType::WorkingSet;
+    }
+
+    WorkingSetObject::Attribute WorkingSetObject::get_attribute(const Attribute::ID id) const
+    {
+        if (Attributes::Type == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = static_cast<std::uint8_t>(this->get_object_type());
+            return attr;
+        }
+        if (Attributes::BackgroundColor == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = this->backgroundColor;
+            return attr;
+        }
+        if (Attributes::Selectable == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Boolean;
+            attr.value.Boolean = this->selectable;
+            return attr;
+        }
+        if (Attributes::ActiveMask == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Uint16;
+            attr.value.Uint16 = this->activeMask;
+            return attr;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to get working set attribute " + to_string(id) + ": attribute not found!");
+        return Attribute();
+    }
+
+    bool WorkingSetObject::change_attribute(const Attribute::ID, const Attribute &)
+    {
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to change attribute: working set objects do not have mutable attributes!");
+        return false;
     }
 
     bool WorkingSetObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
@@ -99,10 +172,6 @@ namespace isobus
         return true;
     }
 
-    VTChildObjects const &WorkingSetObject::get_child_objects() const { return this->childObjects; };
-
-    std::vector<std::uint16_t> WorkingSetObject::get_child_macros() const { return this->childMacros; };
-
     std::vector<std::string> WorkingSetObject::get_child_languages() const { return this->childLanguages; };
 
     void WorkingSetObject::change_active_mask(const ObjectID mask)
@@ -117,36 +186,80 @@ namespace isobus
         call_object_changed_callbacks();
     }
 
-    void WorkingSetObject::change_child_position(const ObjectID child, const std::uint16_t newX, const std::uint16_t newY)
-    {
-        auto it = this->childObjects.find(child);
-        if (it != this->childObjects.end())
-        {
-            it->second = std::make_pair(newX, newY);
-            call_object_changed_callbacks();
-            return;
-        }
-        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
-                                      "[Object Pool Parser] Failed to change child position: child not found!");
-    }
-
-    void WorkingSetObject::change_child_location(const ObjectID child, const std::uint16_t deltaX, const std::uint16_t deltaY)
-    {
-        auto it = this->childObjects.find(child);
-        if (it != this->childObjects.end())
-        {
-            it->second.first += deltaX;
-            it->second.second += deltaY;
-            call_object_changed_callbacks();
-            return;
-        }
-        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
-                                      "[Object Pool Parser] Failed to change child location: child not found!");
-    }
-
     DataMaskObject::ObjectType DataMaskObject::get_object_type() const
     {
         return ObjectType::DataMask;
+    }
+
+    DataMaskObject::Attribute DataMaskObject::get_attribute(const Attribute::ID id) const
+    {
+        if (Attributes::Type == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = static_cast<std::uint8_t>(this->get_object_type());
+            return attr;
+        }
+        if (Attributes::BackgroundColor == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = this->backgroundColor;
+            return attr;
+        }
+        if (Attributes::SoftKeyMask == static_cast<Attributes>(id))
+        {
+            Attribute attr;
+            attr.type = Attribute::Type::Uint16;
+            attr.value.Boolean = this->softKeyMask;
+            return attr;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to get data mask attribute " + to_string(id) + ": attribute not found!");
+        return Attribute();
+    }
+
+    bool DataMaskObject::change_attribute(const Attribute::ID id, const Attribute &newAttribute)
+    {
+        if (Attributes::BackgroundColor == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Uint8 == newAttribute.type)
+            {
+                this->backgroundColor = newAttribute.value.Uint8;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change data mask attribute background color: invalid attribute type!");
+            return false;
+        }
+        if (Attributes::SoftKeyMask == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Uint16 == newAttribute.type)
+            {
+                this->softKeyMask = newAttribute.value.Uint16;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change data mask attribute Soft Key Mask: invalid attribute type!");
+            return false;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to change data mask attribute " + to_string(id) + ": attribute not found!");
+        return false;
+    }
+
+    void DataMaskObject::change_background_color(std::uint8_t color)
+    {
+        this->backgroundColor = color;
+        call_object_changed_callbacks();
+    }
+
+    void DataMaskObject::change_soft_key_mask(const ObjectID mask)
+    {
+        this->softKeyMask = mask;
+        call_object_changed_callbacks();
     }
 
     bool DataMaskObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
@@ -197,7 +310,7 @@ namespace isobus
                 auto workingsetObject = std::make_shared<WorkingSetObject>(this);
                 if (!workingsetObject->parse(binaryPool, iterator))
                     return false;
-                objects[workingsetObject->get_object_id()] = static_cast<std::shared_ptr<VirtualTerminalObject>>(workingsetObject);
+                objects[workingsetObject->get_object_id()] = static_cast<std::shared_ptr<VTObject>>(workingsetObject);
                 break;
             }
             case ObjectType::DataMask:
@@ -205,7 +318,7 @@ namespace isobus
                 auto datamaskObject = std::make_shared<DataMaskObject>(this);
                 if (!datamaskObject->parse(binaryPool, iterator))
                     return false;
-                objects[datamaskObject->get_object_id()] = static_cast<std::shared_ptr<VirtualTerminalObject>>(datamaskObject);
+                objects[datamaskObject->get_object_id()] = static_cast<std::shared_ptr<VTObject>>(datamaskObject);
                 break;
             }
             default:
@@ -220,7 +333,7 @@ namespace isobus
         return true;
     }
 
-    std::shared_ptr<VirtualTerminalObject> ObjectPool::get_object(ObjectID objectID) const
+    std::shared_ptr<VTObject> ObjectPool::get_object(ObjectID objectID) const
     {
         auto it = objects.find(objectID);
         if (it == objects.end())

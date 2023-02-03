@@ -22,6 +22,32 @@ namespace isobus
         /// @brief Typedef for 16bit object IDs
         using ObjectID = std::uint16_t;
 
+        struct Attribute
+        {
+            enum class Type : std::uint8_t
+            {
+                Boolean,
+                Uint8,
+                Uint16,
+                Uint32,
+                Bitmask
+            };
+            Type type = Type::Uint8;
+            union U
+            {
+                bool Boolean;
+                std::uint8_t Uint8;
+                std::uint16_t Uint16;
+                std::uint32_t Uint32;
+                std::uint8_t Bitmask;
+            };
+            U value = {false};
+            /// @brief Typedef for 8bit attribute IDs
+            using ID = std::uint8_t;
+            static constexpr ID NULL_AID = 255; ///< The NULL_AID is used to indicate that an attribute is not present
+            ID id = NULL_AID;
+        };
+
         /// @brief The types of objects in an object pool by object type byte value
         enum class ObjectType : std::uint8_t
         {
