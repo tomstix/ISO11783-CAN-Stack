@@ -19,8 +19,12 @@ namespace isobus
     /// @brief A struct that contains common enums etc. for the virtual terminal
     struct VirtualTerminalBase
     {
-        /// @brief Typedef for 16bit object IDs
-        using ObjectID = std::uint16_t;
+        /// @brief Alias for 16 bit object IDs
+        using objectID_t = std::uint16_t;
+        static constexpr std::uint16_t NULL_OBJECT_ID = 0xFFFF; ///< The NULL Object ID, usually drawn as blank space
+
+        /// @brief Alias for 8 bit standard colors;
+        using colour_t = std::uint8_t;
 
         struct Attribute
         {
@@ -295,9 +299,6 @@ namespace isobus
             TwoHundredFiftySixColor = 2 ///< 256 Color mode (8 bit)
         };
 
-        static constexpr std::uint16_t NULL_OBJECT_ID = 0xFFFF; ///< The NULL Object ID, usually drawn as blank space
-
-    protected:
         /// @brief The different states of an object pool upload process
         enum class CurrentObjectPoolUploadState : std::uint8_t
         {

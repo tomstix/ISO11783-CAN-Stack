@@ -28,7 +28,7 @@ T convert_bytes_to(std::vector<std::uint8_t>::iterator &it, const std::vector<st
                                                   "[Object Pool Parser] Reached unexpected end of vector while parsing bytes!");
             return value;
         }
-        T tmp = (*it++) << (i * 8);
+        T tmp = (T)(*it++) << (i * 8);
         value |= tmp;
     }
     return value;
@@ -36,7 +36,7 @@ T convert_bytes_to(std::vector<std::uint8_t>::iterator &it, const std::vector<st
 
 namespace isobus
 {
-    VTObject::ObjectID VTObject::get_object_id() const
+    VTObject::objectID_t VTObject::get_object_id() const
     {
         return this->objectID;
     }
@@ -56,7 +56,7 @@ namespace isobus
 
     VTChildObjects const &VTObjectWithChildObjects::get_child_objects() const { return this->childObjects; };
 
-    void VTObjectWithChildObjects::change_child_position(const ObjectID child, const std::uint16_t newX, const std::uint16_t newY)
+    void VTObjectWithChildObjects::change_child_position(const objectID_t child, const std::uint16_t newX, const std::uint16_t newY)
     {
         auto it = this->childObjects.find(child);
         if (it != this->childObjects.end())
@@ -69,7 +69,7 @@ namespace isobus
                                       "[Object Pool Parser] Failed to change child position: child not found!");
     }
 
-    void VTObjectWithChildObjects::change_child_location(const ObjectID child, const std::uint16_t deltaX, const std::uint16_t deltaY)
+    void VTObjectWithChildObjects::change_child_location(const objectID_t child, const std::uint16_t deltaX, const std::uint16_t deltaY)
     {
         auto it = this->childObjects.find(child);
         if (it != this->childObjects.end())
@@ -99,11 +99,11 @@ namespace isobus
             attr.value.Uint8 = static_cast<std::uint8_t>(this->get_object_type());
             return attr;
         }
-        if (Attributes::BackgroundColor == static_cast<Attributes>(id))
+        if (Attributes::BackgroundColour == static_cast<Attributes>(id))
         {
             Attribute attr;
             attr.type = Attribute::Type::Uint8;
-            attr.value.Uint8 = this->backgroundColor;
+            attr.value.Uint8 = this->backgroundColour;
             return attr;
         }
         if (Attributes::Selectable == static_cast<Attributes>(id))
@@ -134,11 +134,11 @@ namespace isobus
 
     bool WorkingSetObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
     {
-        this->objectID = convert_bytes_to<ObjectID>(it, bytes.end());
+        this->objectID = convert_bytes_to<objectID_t>(it, bytes.end());
         it++; // skip object type
-        this->backgroundColor = *it++;
+        this->backgroundColour = *it++;
         this->selectable = static_cast<bool>(*it++);
-        this->activeMask = convert_bytes_to<ObjectID>(it, bytes.end());
+        this->activeMask = convert_bytes_to<objectID_t>(it, bytes.end());
         std::uint8_t numObjects = *it++;
         std::uint8_t numMacros = *it++;
         std::uint8_t numLanguages = *it++;
@@ -152,7 +152,7 @@ namespace isobus
 
         for (int i = 0; i < numObjects; ++i)
         {
-            ObjectID id = convert_bytes_to<ObjectID>(it, bytes.end());
+            objectID_t id = convert_bytes_to<objectID_t>(it, bytes.end());
             auto x_location = convert_bytes_to<std::int16_t>(it, bytes.end());
             auto y_location = convert_bytes_to<std::int16_t>(it, bytes.end());
             childObjects.emplace(id, std::make_pair(x_location, y_location));
@@ -160,7 +160,7 @@ namespace isobus
 
         for (int i = 0; i < numMacros; ++i)
         {
-            childMacros.push_back(static_cast<std::int16_t>(*it++ | *it++ << 8));
+            childMacros.push_back(convert_bytes_to<uint16_t>(it, bytes.end()));
         }
 
         for (int i = 0; i < numLanguages; ++i)
@@ -174,15 +174,15 @@ namespace isobus
 
     std::vector<std::string> WorkingSetObject::get_child_languages() const { return this->childLanguages; };
 
-    void WorkingSetObject::change_active_mask(const ObjectID mask)
+    void WorkingSetObject::change_active_mask(const objectID_t mask)
     {
         this->activeMask = mask;
         call_object_changed_callbacks();
     }
 
-    void WorkingSetObject::change_background_color(std::uint8_t color)
+    void WorkingSetObject::change_background_colour(colour_t colour)
     {
-        this->backgroundColor = color;
+        this->backgroundColour = colour;
         call_object_changed_callbacks();
     }
 
@@ -193,23 +193,22 @@ namespace isobus
 
     DataMaskObject::Attribute DataMaskObject::get_attribute(const Attribute::ID id) const
     {
+        Attribute attr;
+        attr.id = id;
         if (Attributes::Type == static_cast<Attributes>(id))
         {
-            Attribute attr;
             attr.type = Attribute::Type::Uint8;
             attr.value.Uint8 = static_cast<std::uint8_t>(this->get_object_type());
             return attr;
         }
-        if (Attributes::BackgroundColor == static_cast<Attributes>(id))
+        if (Attributes::BackgroundColour == static_cast<Attributes>(id))
         {
-            Attribute attr;
             attr.type = Attribute::Type::Uint8;
-            attr.value.Uint8 = this->backgroundColor;
+            attr.value.Uint8 = this->backgroundColour;
             return attr;
         }
         if (Attributes::SoftKeyMask == static_cast<Attributes>(id))
         {
-            Attribute attr;
             attr.type = Attribute::Type::Uint16;
             attr.value.Boolean = this->softKeyMask;
             return attr;
@@ -221,16 +220,16 @@ namespace isobus
 
     bool DataMaskObject::change_attribute(const Attribute::ID id, const Attribute &newAttribute)
     {
-        if (Attributes::BackgroundColor == static_cast<Attributes>(id))
+        if (Attributes::BackgroundColour == static_cast<Attributes>(id))
         {
             if (Attribute::Type::Uint8 == newAttribute.type)
             {
-                this->backgroundColor = newAttribute.value.Uint8;
+                this->backgroundColour = newAttribute.value.Uint8;
                 call_object_changed_callbacks();
                 return true;
             }
             CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
-                                          "[Object Pool Parser] Failed to change data mask attribute background color: invalid attribute type!");
+                                          "[Object Pool Parser] Failed to change data mask attribute background colour: invalid attribute type!");
             return false;
         }
         if (Attributes::SoftKeyMask == static_cast<Attributes>(id))
@@ -250,13 +249,13 @@ namespace isobus
         return false;
     }
 
-    void DataMaskObject::change_background_color(std::uint8_t color)
+    void DataMaskObject::change_background_colour(colour_t colour)
     {
-        this->backgroundColor = color;
+        this->backgroundColour = colour;
         call_object_changed_callbacks();
     }
 
-    void DataMaskObject::change_soft_key_mask(const ObjectID mask)
+    void DataMaskObject::change_soft_key_mask(const objectID_t mask)
     {
         this->softKeyMask = mask;
         call_object_changed_callbacks();
@@ -264,10 +263,10 @@ namespace isobus
 
     bool DataMaskObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
     {
-        this->objectID = convert_bytes_to<ObjectID>(it, bytes.end());
+        this->objectID = convert_bytes_to<objectID_t>(it, bytes.end());
         it++; // skip object type
-        this->backgroundColor = *it++;
-        this->softKeyMask = convert_bytes_to<ObjectID>(it, bytes.end());
+        this->backgroundColour = *it++;
+        this->softKeyMask = convert_bytes_to<objectID_t>(it, bytes.end());
         std::uint8_t numObjects = *it++;
         std::uint8_t numMacros = *it++;
 
@@ -280,7 +279,7 @@ namespace isobus
 
         for (int i = 0; i < numObjects; ++i)
         {
-            ObjectID id = convert_bytes_to<ObjectID>(it, bytes.end());
+            objectID_t id = convert_bytes_to<objectID_t>(it, bytes.end());
             auto x_location = convert_bytes_to<std::int16_t>(it, bytes.end());
             auto y_location = convert_bytes_to<std::int16_t>(it, bytes.end());
             childObjects.emplace(id, std::make_pair(x_location, y_location));
@@ -288,13 +287,307 @@ namespace isobus
 
         for (int i = 0; i < numMacros; ++i)
         {
-            childMacros.push_back(static_cast<std::int16_t>(*it++ | *it++ << 8));
+            childMacros.push_back(convert_bytes_to<uint16_t>(it, bytes.end()));
         }
 
         CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Debug,
                                       "[Object Pool Parser] Successfully parsed data mask object!");
 
         return true;
+    }
+
+    AlarmMaskObject::ObjectType AlarmMaskObject::get_object_type() const
+    {
+        return ObjectType::AlarmMask;
+    }
+
+    AlarmMaskObject::Attribute AlarmMaskObject::get_attribute(const Attribute::ID id) const
+    {
+        if (DataMaskObject::get_attribute(id).id != Attribute::NULL_AID)
+        {
+            return DataMaskObject::get_attribute(id);
+        }
+        Attribute attr;
+        attr.id = id;
+        if (Attributes::Priority == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = this->priority;
+            return attr;
+        }
+        if (Attributes::AcousticSignal == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = this->acousticSignal;
+            return attr;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to get data mask attribute " + to_string(id) + ": attribute not found!");
+        return Attribute();
+    }
+
+    bool AlarmMaskObject::change_attribute(const Attribute::ID id, const Attribute &newAttribute)
+    {
+        if (true == DataMaskObject::change_attribute(id, newAttribute))
+        {
+            return true;
+        }
+        if (Attributes::Priority == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Uint8 == newAttribute.type)
+            {
+                this->priority = newAttribute.value.Uint8;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change data mask attribute priority: invalid attribute type!");
+            return false;
+        }
+        return false;
+    }
+
+    bool AlarmMaskObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
+    {
+        this->objectID = convert_bytes_to<objectID_t>(it, bytes.end());
+        it++; // skip object type
+        this->backgroundColour = *it++;
+        this->softKeyMask = convert_bytes_to<objectID_t>(it, bytes.end());
+        this->priority = *it++;
+        this->acousticSignal = *it++;
+        std::uint8_t numObjects = *it++;
+        std::uint8_t numMacros = *it++;
+
+        if (bytes.end() - it < numObjects * 6 + numMacros * 2)
+        {
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to parse data mask object: invalid pool size!");
+            return false;
+        }
+
+        for (int i = 0; i < numObjects; ++i)
+        {
+            objectID_t id = convert_bytes_to<objectID_t>(it, bytes.end());
+            auto x_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            auto y_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            childObjects.emplace(id, std::make_pair(x_location, y_location));
+        }
+
+        for (int i = 0; i < numMacros; ++i)
+        {
+            childMacros.push_back(convert_bytes_to<uint16_t>(it, bytes.end()));
+        }
+
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Debug,
+                                      "[Object Pool Parser] Successfully parsed data mask object!");
+
+        return true;
+    }
+
+    ContainerObject::ObjectType isobus::ContainerObject::get_object_type() const
+    {
+        return ObjectType::Container;
+    }
+
+    ContainerObject::Attribute ContainerObject::get_attribute(const Attribute::ID id) const
+    {
+        Attribute attr;
+        attr.id = id;
+        if (Attributes::Type == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = static_cast<std::uint8_t>(this->get_object_type());
+            return attr;
+        }
+        if (Attributes::Width == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint16;
+            attr.value.Uint16 = this->width;
+            return attr;
+        }
+        if (Attributes::Height == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint16;
+            attr.value.Uint16 = this->height;
+            return attr;
+        }
+        if (Attributes::Hidden == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Boolean;
+            attr.value.Boolean = this->hidden;
+            return attr;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to get data mask attribute " + to_string(id) + ": attribute not found!");
+        return Attribute();
+    }
+
+    bool ContainerObject::change_attribute(const Attribute::ID id, const Attribute &newAttribute)
+    {
+        if (Attributes::Width == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Uint16 == newAttribute.type)
+            {
+                this->width = newAttribute.value.Uint16;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change data mask attribute width: invalid attribute type!");
+            return false;
+        }
+        if (Attributes::Height == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Uint16 == newAttribute.type)
+            {
+                this->height = newAttribute.value.Uint16;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change data mask attribute height: invalid attribute type!");
+            return false;
+        }
+        if (Attributes::Hidden == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Boolean == newAttribute.type)
+            {
+                this->hidden = newAttribute.value.Boolean;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change data mask attribute hidden: invalid attribute type!");
+            return false;
+        }
+        return false;
+    }
+
+    bool ContainerObject::change_size(const uint16_t newWidth, const uint16_t newHeight)
+    {
+        this->width = newWidth;
+        this->height = newHeight;
+        call_object_changed_callbacks();
+        return true;
+    }
+
+    bool ContainerObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
+    {
+        this->objectID = convert_bytes_to<objectID_t>(it, bytes.end());
+        *it++; // skip object type
+        this->width = convert_bytes_to<uint16_t>(it, bytes.end());
+        this->height = convert_bytes_to<uint16_t>(it, bytes.end());
+        this->hidden = *it++ != 0;
+        auto numObjects = convert_bytes_to<uint8_t>(it, bytes.end());
+        auto numMacros = convert_bytes_to<uint8_t>(it, bytes.end());
+        if (bytes.end() - it < numObjects * 6 + numMacros * 2)
+        {
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to parse data mask object: invalid pool size!");
+            return false;
+        }
+        for (auto i = 0; i < numObjects; ++i)
+        {
+            auto id = convert_bytes_to<objectID_t>(it, bytes.end());
+            auto x_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            auto y_location = convert_bytes_to<std::int16_t>(it, bytes.end());
+            childObjects.emplace(id, std::make_pair(x_location, y_location));
+        }
+        for (auto i = 0; i < numMacros; ++i)
+        {
+            childMacros.push_back(convert_bytes_to<uint16_t>(it, bytes.end()));
+        }
+        return true;
+    }
+
+    uint16_t ContainerObject::get_width() const
+    {
+        return this->width;
+    }
+
+    uint16_t ContainerObject::get_height() const
+    {
+        return this->height;
+    }
+
+    SoftKeyMaskObject::ObjectType SoftKeyMaskObject::get_object_type() const
+    {
+        return ObjectType::SoftKeyMask;
+    }
+
+    SoftKeyMaskObject::Attribute SoftKeyMaskObject::get_attribute(const Attribute::ID id) const
+    {
+        Attribute attr;
+        if (Attributes::Type == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = static_cast<std::uint8_t>(this->get_object_type());
+            return attr;
+        }
+        if (Attributes::BackgroundColour == static_cast<Attributes>(id))
+        {
+            attr.type = Attribute::Type::Uint8;
+            attr.value.Uint8 = this->backgroundColour;
+            return attr;
+        }
+        CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                      "[Object Pool Parser] Failed to get soft key mask attribute "
+                                      + to_string(id) + ": attribute not found!");
+        return Attribute();
+    }
+
+    bool SoftKeyMaskObject::change_attribute(const Attribute::ID id, const Attribute &newAttribute)
+    {
+        if (Attributes::BackgroundColour == static_cast<Attributes>(id))
+        {
+            if (Attribute::Type::Uint8 == newAttribute.type)
+            {
+                this->backgroundColour = newAttribute.value.Uint8;
+                call_object_changed_callbacks();
+                return true;
+            }
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to change soft key mask attribute background colour: invalid attribute type!");
+            return false;
+        }
+        return false;
+    }
+
+    bool SoftKeyMaskObject::change_background_colour(const std::uint8_t newColour)
+    {
+        this->backgroundColour = newColour;
+        call_object_changed_callbacks();
+        return true;
+    }
+
+    std::vector<SoftKeyMaskObject::objectID_t> SoftKeyMaskObject::get_child_objects() const
+    {
+        return this->childObjects;
+    }
+
+    bool SoftKeyMaskObject::parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &it)
+    {
+        this->objectID = convert_bytes_to<objectID_t>(it, bytes.end());
+        *it++; // skip object type
+        this->backgroundColour = *it++;
+        auto numObjects = convert_bytes_to<uint8_t>(it, bytes.end());
+        auto numMacros = convert_bytes_to<uint8_t>(it, bytes.end());
+        if (bytes.end() - it < numObjects * sizeof(objectID_t) + numMacros * sizeof(objectID_t))
+        {
+            CANStackLogger::CAN_stack_log(CANStackLogger::LoggingLevel::Error,
+                                          "[Object Pool Parser] Failed to parse soft key mask object: invalid pool size!");
+            return false;
+        }
+        for (auto i = 0; i < numObjects; ++i)
+        {
+            auto id = convert_bytes_to<objectID_t>(it, bytes.end());
+            childObjects.push_back(id);
+        }
+        for (auto i = 0; i < numMacros; ++i)
+        {
+            childMacros.push_back(convert_bytes_to<uint16_t>(it, bytes.end()));
+        }
+        return false;
     }
 
     bool ObjectPool::parse(std::vector<std::uint8_t> &binaryPool)
@@ -333,7 +626,7 @@ namespace isobus
         return true;
     }
 
-    std::shared_ptr<VTObject> ObjectPool::get_object(ObjectID objectID) const
+    std::shared_ptr<VTObject> ObjectPool::get_object(objectID_t objectID) const
     {
         auto it = objects.find(objectID);
         if (it == objects.end())

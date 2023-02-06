@@ -16,7 +16,6 @@
 #include <vector>
 #include <memory>
 #include <map>
-#include <string>
 #include <functional>
 
 namespace isobus
@@ -27,14 +26,14 @@ namespace isobus
 
     /// @brief defintion of a callback when an object is changed
     /// @param objectID The ID of the object that changed
-    using VTObjectChangedCallback = std::function<void(const VirtualTerminalBase::ObjectID objectID)>;
+    using VTObjectChangedCallback = std::function<void(const VirtualTerminalBase::objectID_t objectID)>;
 
-    using VTObjectMap = std::map<VirtualTerminalBase::ObjectID, std::shared_ptr<VTObject>>;
+    using VTObjectMap = std::map<VirtualTerminalBase::objectID_t, std::shared_ptr<VTObject>>;
 
     using VTObjectCoordinates = std::pair<std::uint16_t, std::uint16_t>;
 
     /// @brief Typedef for a child object consisting of id, x position, y position
-    using VTChildObjects = std::map<VirtualTerminalBase::ObjectID, VTObjectCoordinates>;
+    using VTChildObjects = std::map<VirtualTerminalBase::objectID_t, VTObjectCoordinates>;
 
     using VTChildMacros = std::vector<std::uint16_t>;
 
@@ -49,7 +48,7 @@ namespace isobus
 
         /// @brief Get the ID of a VT Object
         /// @returns the object ID
-        ObjectID get_object_id() const;
+        objectID_t get_object_id() const;
 
         /// @brief Get the type of a VT Object
         /// @returns the object type
@@ -73,7 +72,7 @@ namespace isobus
 
     protected:
         /// @brief ID of the VT Object
-        ObjectID objectID = 0;
+        objectID_t objectID = 0;
 
         /// @brief Pointer to the parent object pool
         ObjectPool *parentObjectPool = nullptr;
@@ -98,13 +97,13 @@ namespace isobus
         /// @param child The ID of the child object
         /// @param newX The new x position
         /// @param newY The new y position
-        void change_child_position(const ObjectID child, const std::uint16_t newX, const std::uint16_t newY);
+        void change_child_position(const objectID_t child, const std::uint16_t newX, const std::uint16_t newY);
 
         /// @brief Change the position of a child object in relative coordinates
         /// @param child The ID of the child object
         /// @param deltaX The change in x position
         /// @param deltaY The change in y position
-        void change_child_location(const ObjectID child, const std::uint16_t deltaX, const std::uint16_t deltaY);
+        void change_child_location(const objectID_t child, const std::uint16_t deltaX, const std::uint16_t deltaY);
 
     protected:
         VTChildObjects childObjects;
@@ -119,6 +118,20 @@ namespace isobus
 
     protected:
         VTChildMacros childMacros;
+    };
+
+    class VTObjectSelectable : public VirtualTerminalBase
+    {
+    public:
+        using Callback = std::function<void(objectID_t)>;
+
+        void select();
+
+        bool is_selected() const;
+
+    private:
+        bool selected = false;
+        std::vector<Callback> callbacks;
     };
 
     /// @brief A class that represents a Working Set Object
@@ -155,21 +168,21 @@ namespace isobus
 
         /// @brief Change the active mask of the working set
         /// @param mask Object ID of the mask to activate
-        void change_active_mask(const ObjectID mask);
+        void change_active_mask(const objectID_t mask);
 
         /// @brief Change the background color of the working set
         /// @param color The new background color
-        void change_background_color(std::uint8_t color);
+        void change_background_colour(std::uint8_t color);
 
     private:
-        std::uint8_t backgroundColor = 0;
+        std::uint8_t backgroundColour = 0;
         bool selectable = false;
-        ObjectID activeMask = 0;
+        objectID_t activeMask = 0;
         VTChildLanguages childLanguages;
         enum class Attributes : Attribute::ID
         {
             Type = 0x00,
-            BackgroundColor = 0x01,
+            BackgroundColour = 0x01,
             Selectable = 0x02,
             ActiveMask = 0x03
         };
@@ -183,42 +196,187 @@ namespace isobus
 
         /// @brief Get the object type
         /// @returns ObjectType
-        ObjectType get_object_type() const final;
+        ObjectType get_object_type() const override;
 
         /// @brief Get the current value of an objects attribute
         /// @param id The attribute's ID
         /// @param attribute The attribute to write to
         /// @return The AttributeType that the Attribute is using
-        Attribute get_attribute(const Attribute::ID id) const final;
+        Attribute get_attribute(const Attribute::ID id) const override;
 
         /// @brief Change an attribute of the object
         /// @param id The attribute to change
         /// @param newAttribute The new value for the attribute
         /// @return True if successful
-        bool change_attribute(const Attribute::ID id, const Attribute &newAttribute) final;
+        bool change_attribute(const Attribute::ID id, const Attribute &newAttribute) override;
 
         /// @brief Change the background color of the data mask
         /// @param color The new background color
-        void change_background_color(std::uint8_t color);
+        void change_background_colour(std::uint8_t color);
 
         /// @brief Change the soft key mask of the data mask
-        /// @param mask ObjectID of the new soft key mask
-        void change_soft_key_mask(const ObjectID mask);
+        /// @param mask objectID_t of the new soft key mask
+        void change_soft_key_mask(const objectID_t mask);
 
         /// @brief Parse a DataMaskObject from a byte vector
         /// @param begin An iterator pointing to the start of the object
         /// @param bytes The object pool byte vector
         /// @returns True if successful
-        bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin);
+        virtual bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin);
+
+    protected:
+        uint8_t backgroundColour;
+        objectID_t softKeyMask;
 
     private:
-        uint8_t backgroundColor;
-        ObjectID softKeyMask;
         enum class Attributes : Attribute::ID
         {
             Type = 0,
-            BackgroundColor = 1,
+            BackgroundColour = 1,
             SoftKeyMask = 2
+        };
+    };
+
+    class AlarmMaskObject : public DataMaskObject
+    {
+    public:
+        using DataMaskObject::DataMaskObject;
+
+        /// @brief Get the object type
+        /// @returns ObjectType
+        ObjectType get_object_type() const override;
+
+        /// @brief Get the current value of an objects attribute
+        /// @param id The attribute's ID
+        /// @param attribute The attribute to write to
+        /// @return The AttributeType that the Attribute is using
+        Attribute get_attribute(const Attribute::ID id) const override;
+
+        /// @brief Change an attribute of the object
+        /// @param id The attribute to change
+        /// @param newAttribute The new value for the attribute
+        /// @return True if successful
+        bool change_attribute(const Attribute::ID id, const Attribute &newAttribute) override;
+
+        /// @brief Parse an AlarmMaskObject from a byte vector
+        /// @param begin An iterator pointing to the start of the object
+        /// @param bytes The object pool byte vector
+        /// @returns True if successful
+        bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin) override;
+
+    private:
+        uint8_t priority;
+        uint8_t acousticSignal;
+        enum class Attributes : Attribute::ID
+        {
+            Type = 0,
+            BackgroundColour = 1,
+            SoftKeyMask = 2,
+            Priority = 3,
+            AcousticSignal = 4
+        };
+    };
+
+    class ContainerObject : public VTObjectWithChildObjects, public VTObjectChildMacrosExtension
+    {
+    public:
+        using VTObjectWithChildObjects::VTObjectWithChildObjects;
+
+        /// @brief Get the object type
+        /// @returns ObjectType
+        ObjectType get_object_type() const override;
+
+        /// @brief Get the current value of an objects attribute
+        /// @param id The attribute's ID
+        /// @param attribute The attribute to write to
+        /// @return The AttributeType that the Attribute is using
+        Attribute get_attribute(const Attribute::ID id) const override;
+
+        /// @brief Change an attribute of the object
+        /// @param id The attribute to change
+        /// @param newAttribute The new value for the attribute
+        /// @return True if successful
+        bool change_attribute(const Attribute::ID id, const Attribute &newAttribute) override;
+
+        bool change_size(const uint16_t newWidth, const uint16_t newHeight);
+
+        /// @brief Parse an AlarmMaskObject from a byte vector
+        /// @param begin An iterator pointing to the start of the object
+        /// @param bytes The object pool byte vector
+        /// @returns True if successful
+        bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin);
+
+        uint16_t get_width() const;
+
+        uint16_t get_height() const;
+
+    private:
+        uint16_t width;
+        uint16_t height;
+        bool hidden;
+        enum class Attributes : Attribute::ID
+        {
+            Type = 0,
+            Width = 1,
+            Height = 2,
+            Hidden = 3
+        };
+    };
+
+    class SoftKeyMaskObject : public VTObject, public VTObjectChildMacrosExtension
+    {
+    public:
+        using VTObject::VTObject;
+
+        ObjectType get_object_type() const override;
+
+        Attribute get_attribute(const Attribute::ID id) const override;
+
+        bool change_attribute(const Attribute::ID id, const Attribute &newAttribute) override;
+
+        bool change_background_colour(const std::uint8_t newColor);
+
+        std::vector<objectID_t> get_child_objects() const;
+
+        bool parse(const std::vector<std::uint8_t> &bytes, std::vector<std::uint8_t>::iterator &begin);
+
+    private:
+        std::uint8_t backgroundColour;
+        std::vector<objectID_t> childObjects;
+        enum class Attributes : Attribute::ID
+        {
+            Type = 0,
+            BackgroundColour = 1
+        };
+    };
+
+    class KeyObject : public VTObjectWithChildObjects,
+                      public VTObjectChildMacrosExtension
+    {
+    public:
+        using VTObjectWithChildObjects::VTObjectWithChildObjects;
+
+        ObjectType get_object_type() const override;
+
+        Attribute get_attribute(const Attribute::ID id) const override;
+
+        bool change_attribute(const Attribute::ID id, const Attribute &newAttribute) override;
+
+        bool change_background_colour(const std::uint8_t newColor);
+
+        void select();
+
+        bool is_selected() const;
+
+    private:
+        uint8_t backgroundColour;
+        uint8_t keyCode;
+        bool selected;
+        enum class Attributes : Attribute::ID
+        {
+            Type = 0,
+            BackgroundColour = 1,
+            KeyCode = 2
         };
     };
 
@@ -231,7 +389,7 @@ namespace isobus
         /// @returns true if parsing succeeded
         bool parse(std::vector<std::uint8_t> &binaryPool);
 
-        std::shared_ptr<VTObject> get_object(const ObjectID objectID) const;
+        std::shared_ptr<VTObject> get_object(const objectID_t objectID) const;
 
     private:
         VTObjectMap objects;
